@@ -43,7 +43,7 @@ DyVerse 是一个「打开即用」的本地抖音下载工具：
 | --- | --- | --- |
 | 🎬 视频下载 | 无水印原画 | `playwm` → `play` 地址转换，分辨率优先 1080P+（取决于源站提供） |
 | 🖼️ 图文笔记 | 单张下载 / 一键全部 | 图片以原始清晰度链接逐个保存 |
-| 🎞️ 实况照片 | iOS 可识别 Live Photo | 图文中的实况图打包为「同名 JPG + MOV」配对 ZIP，iPhone 相册保存后即为可播放的实况照片（另可单独另存 MP4 动图） |
+| 🎞️ 实况照片 | iOS 一键直存相册 | 图文中的实况图直接打包为「同名 JPG + MOV」配对；**iPhone 上点击「保存实况照片到相册」→ 系统面板点「存储图像」，无需 ZIP 即直接存入相册**（另可单独另存动图 MP4 / 下载 ZIP 备用） |
 | 🔗 链接兼容 | 分享口令 / 短链 / 页面链接 | `v.douyin.com`、`douyin.com/video|note`、`iesdouyin.com/share/...` |
 | ▶️ 在线预览 | 视频 / 图片预览 | 通过本地代理内联播放与展示，不受防盗链影响 |
 | 📊 作品信息 | 关键信息 | 标题、作者、封面与预览，克制呈现 |
@@ -124,6 +124,41 @@ npm start       # 启动后端，同时托管 dist 静态资源与 API
 | `npm run build` | `vue-tsc -b` 类型检查 + `vite build` 构建 |
 | `npm start` | 生产启动（托管 dist + API） |
 | `npm run preview` | 预览构建产物（仅前端） |
+
+### 4.6 iPhone 一键直存相册（HTTPS）
+
+「保存实况照片到相册」依赖 iOS Safari 的 Web Share 文件分享，而它**只在安全上下文（HTTPS / localhost）下可用**。iPhone 通过 `http://192.168.x.x` 访问时浏览器不提供该 API，页面会自动回退为 ZIP 下载——**这是预期行为，不是 bug**。
+
+本项目已内置「零配置 HTTPS」：只要 `server/certs/` 下存在 `lan.pem` + `lan-key.pem`（**本机已生成**，对应 `192.168.31.172`），前后端都会自动以 HTTPS 启动：
+
+```bash
+npm run dev:all    # 开发模式 → https://192.168.31.172:5173（Vite 自动读证书）
+npm start          # 生产模式 → https://192.168.31.172:8787（后端自动读证书）
+```
+
+**iPhone 首次访问**：Safari 打开地址 → 出现「此连接非私人连接」→ 点「显示详细信息 → 访问此网站」即可（自签名证书提示，属正常）。
+
+**IP 变了或换机器**（重新生成证书）：
+
+```bash
+mkdir -p server/certs && cd server/certs
+openssl req -x509 -newkey rsa:2048 -keyout lan-key.pem -out lan.pem -days 825 -nodes \
+  -subj "/CN=<你的局域网IP>" \
+  -addext "subjectAltName=IP:<你的局域网IP>,DNS:localhost,IP:127.0.0.1"
+```
+
+**想消除证书警告（可选，mkcert）**：
+
+```bash
+brew install mkcert && mkcert -install
+mkcert -cert-file server/certs/lan.pem -key-file server/certs/lan-key.pem 192.168.31.172 localhost 127.0.0.1
+```
+
+并把 mkcert 根证书（`mkcert -CAROOT` 目录下的 `rootCA.pem`，AirDrop 或网页下载均可）安装到 iPhone：设置 → 通用 → VPN 与设备管理 → 安装描述文件 → 关于本机 → 证书信任设置 → 开启完全信任。
+
+**macOS Safari 不支持分享文件**，因此 Mac 浏览器上不会出现「保存实况照片到相册」按钮（只会看到 ZIP 流程），这是预期行为——请直接用 iPhone 测试。
+
+> 提示：桌面端与 Android 均使用「下载 ZIP（备用）」流程，实况照片合并仅 iPhone / iPad 的「存储图像」动作支持。
 
 ---
 
@@ -321,7 +356,8 @@ curl -X POST http://localhost:8787/api/parse \
 ```
 
 > 图文作品：`type` 为 `image`，`images` 为图片 URL 数组，`videoUrl` / `videoUrlWatermark` 为空字符串。
-> 实况照片：`isLivePhoto` 为 `true`，`livePhotos` 为「静态图 + 动图视频」配对数组（与 `images` 一一对应），`livePhotoUrls` 为动图 mp4 直链数组（兼容字段）。前端主操作「下载实况照片」会将每对静态图转码为 JPEG、动图视频以 `.MOV` 命名，打包为同名配对 ZIP —— iPhone 在「文件」中解压后同时选中一对文件保存到相册，即得到可播放的实况照片。
+> 实况照片：`isLivePhoto` 为 `true`，`livePhotos` 为「静态图 + 动图视频」配对数组（与 `images` 一一对应），`livePhotoUrls` 为动图 mp4 直链数组（兼容字段）。
+> 前端主操作「保存实况照片到相册」：在 **iPhone Safari（HTTPS 环境）** 下会把每对静态图转码为 JPEG、动图视频以 `.MOV` 命名，通过系统分享面板一键唤起「存储图像」——**直接存入相册，无需 ZIP 与「文件」App**；非安全上下文自动回退为「同名 JPG + MOV 配对 ZIP」流程。
 
 **异常响应**
 
@@ -364,6 +400,7 @@ Content-Length: 15504346
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `PORT`（环境变量） | `8787` | 后端服务端口 |
+| `HTTPS_CERT` / `HTTPS_KEY`（环境变量） | 未设置 | 显式指定 PEM 证书路径；未设置时自动读取 `server/certs/lan.pem` + `lan-key.pem`（存在即 HTTPS 启动，见 4.6） |
 | Vite 开发端口 | `5173` | `vite.config.ts` 中 `server.port` |
 | `/api` 代理 | `http://localhost:8787` | `vite.config.ts` 中 `server.proxy` |
 
@@ -398,6 +435,12 @@ Content-Length: 15504346
 ### 10.6 部署到服务器后无法解析
 - 部分云服务器 IP 会被抖音风控拦截（验证页），本工具设计为**本机使用**；
 - 若必须部署，建议使用家庭宽带 IP 并控制请求频率。
+
+### 10.7 iPhone 上「保存实况照片到相册」按钮未出现 / 只下载了 ZIP / 分享面板没有「存储图像」
+- 一键直存依赖 iOS Safari 15+ 的 Web Share 文件分享，且页面必须是 **HTTPS 或 localhost**（安全上下文）；
+- iPhone 通过 `http://192.168.x.x` 访问时会回退为 ZIP，请改用 HTTPS 地址：开发模式 `https://192.168.31.172:5173`，生产模式 `https://192.168.31.172:8787`（证书已内置在 `server/certs/`，见 [4.6 节](#46-iphone-一键直存相册https)）；
+- 分享面板中没有「存储图像」是 iOS 16.2+ 部分版本的已知问题（[w3c/web-share#278](https://github.com/w3c/web-share/issues/278)，代码已按 [mdn/content#32019](https://github.com/mdn/content/issues/32019) 的结论改为只传 `{ files }` 调用 share，不带 title）；若仍缺失，改选「**存储到『文件』**」，再在文件 App 中同时选中这一对同名文件 → 分享 →「存储图像」，同样得到实况照片；
+- 分享面板中请选择「**存储图像**」（实况照片）或「存储视频」（动图），而不是「存储到文件」。
 
 ---
 

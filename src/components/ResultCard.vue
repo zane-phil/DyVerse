@@ -2,7 +2,14 @@
 import { computed, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { mediaUrl, triggerDownload, downloadMany } from '../api/douyin'
-import { buildLivePhotoZip, downloadBytes } from '../api/livePhoto'
+import {
+  buildLivePhotoZip,
+  downloadBytes,
+  canShareFiles,
+  isIosDevice,
+  prepareLivePhotoFiles,
+  prepareVideoFile,
+} from '../api/livePhoto'
 import { safeFilename } from '../utils/format'
 import type { ParseResult } from '../types'
 
@@ -19,8 +26,16 @@ const filename = computed(() => {
 const isImage = computed(() => item.value?.type === 'image' || (item.value?.images?.length ?? 0) > 0)
 const isLivePhoto = computed(() => (item.value?.livePhotoUrls?.length ?? 0) > 0 || !!item.value?.isLivePhoto)
 
+/** 一键直存相册：仅 iPhone / iPad 上的 Safari 支持（分享面板「存储图像」），其余设备一律回退 ZIP */
+const isIos = computed(() => isIosDevice())
+const canShare = computed(() => isIos.value && canShareFiles())
+const isSecure = typeof window !== 'undefined' && window.isSecureContext
+
 const zipBusy = ref(false)
 const zipProgress = ref('')
+
+const shareBusy = ref(false)
+const shareProgress = ref('')
 
 const proxyCover = computed(() => {
   const it = item.value
@@ -54,11 +69,60 @@ function downloadAllImages() {
   MessagePlugin.success(`正在依次下载 ${it.images.length} 张图片`)
 }
 
-function downloadLivePhotos() {
+/** 主操作：直接存入 iPhone 相册（分享面板 →「存储图像」，iOS 自动合并为实况照片） */
+async function saveLivePhotosToPhotos() {
+  const it = item.value
+  if (!it) return
+  shareBusy.value = true
+  shareProgress.value = '准备中…'
+  try {
+    const { files } = await prepareLivePhotoFiles(it, (msg) => (shareProgress.value = msg))
+    // 注意：iOS 上 share() 只能传 { files } 一个属性！带 title/text/url 会导致
+    // 分享面板不出现「存储图像」动作（见 w3c/web-share#278、mdn/content#32019）
+    await navigator.share({ files })
+    MessagePlugin.success('已打开分享面板，点击「存储图像」即直接存入相册')
+  } catch (e) {
+    const name = (e as DOMException)?.name
+    if (name === 'AbortError') return // 用户主动取消，静默
+    if (name === 'NotAllowedError') {
+      // 准备耗时较长导致手势激活失效：文件已缓存，再点一次即可唤起
+      MessagePlugin.info('照片已准备就绪，请再次点击按钮打开分享面板')
+    } else {
+      MessagePlugin.error(e instanceof Error ? e.message : '保存失败，请重试')
+    }
+  } finally {
+    shareBusy.value = false
+    shareProgress.value = ''
+  }
+}
+
+/** 另存为动图：iPhone 上通过分享面板「存储视频」直存相册，其余环境回退为逐个下载 */
+async function saveLivePhotoVideo() {
   const it = item.value
   const urls = it?.livePhotoUrls
   if (!urls?.length) {
     MessagePlugin.warning('未获取到实况动图地址')
+    return
+  }
+  if (canShare.value && urls.length === 1) {
+    shareBusy.value = true
+    shareProgress.value = '准备动图…'
+    try {
+      const file = await prepareVideoFile(urls[0], `${filename.value}-动图`)
+      await navigator.share({ files: [file] })
+      MessagePlugin.success('已打开分享面板，点击「存储视频」即直接存入相册')
+    } catch (e) {
+      const name = (e as DOMException)?.name
+      if (name === 'AbortError') return
+      if (name === 'NotAllowedError') {
+        MessagePlugin.info('动图已准备就绪，请再次点击按钮打开分享面板')
+      } else {
+        MessagePlugin.error(e instanceof Error ? e.message : '保存失败，请重试')
+      }
+    } finally {
+      shareBusy.value = false
+      shareProgress.value = ''
+    }
     return
   }
   downloadMany(urls, filename.value)
@@ -151,7 +215,18 @@ async function downloadIosLivePhotos() {
 
         <div class="actions">
           <t-button
-            v-if="isLivePhoto"
+            v-if="isLivePhoto && canShare"
+            class="cta"
+            size="large"
+            shape="round"
+            theme="primary"
+            :loading="shareBusy"
+            @click="saveLivePhotosToPhotos"
+          >
+            {{ shareBusy ? shareProgress : '保存实况照片到相册' }}
+          </t-button>
+          <t-button
+            v-else-if="isLivePhoto"
             class="cta"
             size="large"
             shape="round"
@@ -181,13 +256,25 @@ async function downloadIosLivePhotos() {
           >
             下载全部图片
           </t-button>
-          <t-button v-if="isLivePhoto" class="sub" variant="text" @click="downloadLivePhotos">
-            另存为动图 MP4
+          <t-button v-if="isLivePhoto && canShare" class="sub" variant="text" @click="downloadIosLivePhotos">
+            下载 ZIP（备用）
+          </t-button>
+          <t-button v-if="isLivePhoto" class="sub" variant="text" @click="saveLivePhotoVideo">
+            {{ canShare ? '另存为动图到相册' : '另存为动图 MP4' }}
           </t-button>
         </div>
 
-        <p v-if="isLivePhoto && !zipBusy" class="ios-tip">
-          ZIP 内含同名 JPG + MOV 配对：传到 iPhone 在「文件」中解压，同时选中一对文件 → 分享 →「存储图像」，相册中即为可播放的实况照片。
+        <p v-if="isLivePhoto && !zipBusy && !shareBusy" class="ios-tip">
+          <template v-if="canShare">
+            点击「保存实况照片到相册」→ 在弹出的系统分享面板中点击「存储图像」，实况照片即
+            <strong>直接存入 iPhone 相册</strong>，无需 ZIP 解压。若面板中没有「存储图像」（iOS 16.2+ 部分版本的已知问题），改选「存储到『文件』」，再在文件 App 中同时选中这一对同名文件 → 分享 →「存储图像」，同样得到实况照片。
+          </template>
+          <template v-else-if="isIos && !isSecure">
+            iPhone 上的一键直存需要 HTTPS 环境（Web Share 仅在安全上下文可用），当前页面不是 HTTPS，已回退为 ZIP 下载。请按 README 4.6 配置 HTTPS 或 cloudflared 隧道后重试。
+          </template>
+          <template v-else>
+            ZIP 内含同名 JPG + MOV 配对：传到 iPhone 在「文件」中解压，同时选中一对文件 → 分享 →「存储图像」，相册中即为可播放的实况照片。一键直存仅支持 iPhone / iPad 上的 Safari（本电脑端无法直接存入手机相册）。
+          </template>
         </p>
       </div>
     </article>

@@ -6,6 +6,8 @@
  */
 import express from 'express'
 import cors from 'cors'
+import http from 'node:http'
+import https from 'node:https'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +15,14 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = Number(process.env.PORT || 8787)
+
+/* 可选 HTTPS：iPhone 一键直存相册（Web Share）要求安全上下文，需 HTTPS 访问。
+   优先级：环境变量 HTTPS_CERT / HTTPS_KEY（PEM 路径）> server/certs/lan.pem + lan-key.pem（自动生成，见 README 4.6）。 */
+const CERT_FILE = path.join(__dirname, 'certs/lan.pem')
+const KEY_FILE = path.join(__dirname, 'certs/lan-key.pem')
+const HTTPS_CERT = process.env.HTTPS_CERT || (fs.existsSync(CERT_FILE) ? CERT_FILE : '')
+const HTTPS_KEY = process.env.HTTPS_KEY || (fs.existsSync(KEY_FILE) ? KEY_FILE : '')
+const useHttps = !!(HTTPS_CERT && HTTPS_KEY)
 
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
@@ -587,12 +597,25 @@ async function listenWithFallback(basePort, maxShift = 20) {
   for (let shift = 0; shift < maxShift; shift++) {
     const port = basePort + shift
     const server = await new Promise((resolve, reject) => {
-      const srv = app.listen(port)
+      let srv
+      try {
+        srv = useHttps
+          ? https.createServer(
+              { key: fs.readFileSync(HTTPS_KEY), cert: fs.readFileSync(HTTPS_CERT) },
+              app,
+            )
+          : http.createServer(app)
+      } catch (err) {
+        console.error('[DyVerse] HTTPS 证书读取失败，请检查 HTTPS_CERT / HTTPS_KEY 路径:', err.message)
+        reject(err)
+        return
+      }
       srv.once('listening', () => resolve(srv))
       srv.once('error', (err) => {
         if (err && err.code === 'EADDRINUSE') resolve(null)
         else reject(err)
       })
+      srv.listen(port)
     })
     if (server) {
       try {
@@ -600,10 +623,11 @@ async function listenWithFallback(basePort, maxShift = 20) {
       } catch {
         /* 端口文件写入失败不影响服务 */
       }
+      const protocol = useHttps ? 'https' : 'http'
       console.log(
         shift === 0
-          ? `[DyVerse] server listening on http://localhost:${port}`
-          : `[DyVerse] 端口 ${basePort} 被占用，已切换到 http://localhost:${port}`,
+          ? `[DyVerse] server listening on ${protocol}://localhost:${port}`
+          : `[DyVerse] 端口 ${basePort} 被占用，已切换到 ${protocol}://localhost:${port}`,
       )
       return server
     }

@@ -109,6 +109,119 @@ export async function buildLivePhotoZip(
   return { data, pairs: pairs.length }
 }
 
+/* ---------------- iOS 直接存入相册（Web Share API Level 2） ---------------- */
+
+/**
+ * 是否为 iPhone / iPad（含 iPadOS 13+ 将 UA 伪装为 Mac 的情况）。
+ * 一键直存依赖 iOS 的「存储图像 / 存储视频」分享动作，macOS / Windows / Android 均无此能力。
+ */
+export function isIosDevice(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return (
+    /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  )
+}
+
+export interface PreparedLivePhoto {
+  /** 同名 JPG + MOV 配对文件 */
+  files: File[]
+  /** 配对数量 */
+  pairs: number
+}
+
+let preparedCache: PreparedLivePhoto | null = null
+let preparedKey = ''
+
+/**
+ * 当前环境是否支持把文件直接分享到系统面板。
+ * iPhone Safari 15+ 支持：分享 JPG + MOV 同名配对时，分享面板会出现「存储图像」，
+ * 点击后 iOS 直接把这一对合并为实况照片存入相册 —— 无需 ZIP 与「文件」App。
+ */
+export function canShareFiles(): boolean {
+  if (typeof navigator === 'undefined' || !navigator.canShare || !navigator.share) return false
+  try {
+    return navigator.canShare({
+      files: [new File([new Uint8Array(1)], 'share-test.JPG', { type: 'image/jpeg' })],
+    })
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 准备实况照片配对（同名 JPG + MOV），供 navigator.share 直接唤起 iOS 分享面板。
+ * 结果按作品 id 缓存：再次点击会立即重新唤起分享，不重复下载。
+ */
+export async function prepareLivePhotoFiles(
+  item: DouyinMedia,
+  onProgress?: (msg: string) => void,
+): Promise<PreparedLivePhoto> {
+  const key = item.id
+  if (preparedCache && preparedKey === key) return preparedCache
+
+  const pairs =
+    item.livePhotos && item.livePhotos.length
+      ? item.livePhotos
+      : item.images.map((image) => ({ image, video: '' }))
+
+  const files: File[] = []
+  const pad = (n: number) => String(n).padStart(3, '0')
+
+  for (let i = 0; i < pairs.length; i++) {
+    const p = pairs[i]
+    const base = `IMG_${pad(i + 1)}`
+    onProgress?.(`正在准备第 ${i + 1}/${pairs.length} 张…`)
+    if (p.image) {
+      const blob = await fetchProxyBlob(p.image)
+      let jpeg: Uint8Array
+      try {
+        jpeg = await blobToJpeg(blob)
+      } catch {
+        // 转码失败时保留原始字节（尽力而为）
+        jpeg = new Uint8Array(await blob.arrayBuffer())
+      }
+      // 复制到独立 ArrayBuffer，规避 Uint8Array<ArrayBufferLike> 与 BlobPart 的类型不兼容
+      const jpegCopy = new Uint8Array(jpeg.byteLength)
+      jpegCopy.set(jpeg)
+      files.push(new File([jpegCopy], `${base}.JPG`, { type: 'image/jpeg' }))
+    }
+    if (p.video) {
+      onProgress?.(`正在准备第 ${i + 1}/${pairs.length} 张的动图视频…`)
+      const blob = await fetchProxyBlob(p.video)
+      // 源站为 H.264/AAC 的 mp4，重命名为 .MOV 后 iOS 可正常配对识别
+      files.push(
+        new File([new Uint8Array(await blob.arrayBuffer())], `${base}.MOV`, { type: 'video/quicktime' }),
+      )
+    }
+  }
+
+  preparedCache = { files, pairs: pairs.length }
+  preparedKey = key
+  return preparedCache
+}
+
+let videoCache: File | null = null
+let videoKey = ''
+
+/**
+ * 准备单个动图视频为 .MOV 文件（分享面板点「存储视频」可直接存入相册），按 URL 缓存。
+ */
+export async function prepareVideoFile(
+  url: string,
+  name: string,
+  onProgress?: (msg: string) => void,
+): Promise<File> {
+  if (videoCache && videoKey === url) return videoCache
+  onProgress?.('正在下载动图视频…')
+  const blob = await fetchProxyBlob(url)
+  videoCache = new File([new Uint8Array(await blob.arrayBuffer())], `${name}.MOV`, {
+    type: 'video/quicktime',
+  })
+  videoKey = url
+  return videoCache
+}
+
 /** 触发浏览器保存 Uint8Array 文件 */
 export function downloadBytes(data: Uint8Array, filename: string, mime = 'application/zip') {
   // 复制到独立 ArrayBuffer，规避 Uint8Array<ArrayBufferLike> 与 BlobPart 的类型不兼容
