@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { mediaUrl, triggerDownload, downloadMany } from '../api/douyin'
+import { buildLivePhotoZip, downloadBytes } from '../api/livePhoto'
 import { safeFilename } from '../utils/format'
 import type { ParseResult } from '../types'
 
@@ -17,6 +18,9 @@ const filename = computed(() => {
 
 const isImage = computed(() => item.value?.type === 'image' || (item.value?.images?.length ?? 0) > 0)
 const isLivePhoto = computed(() => (item.value?.livePhotoUrls?.length ?? 0) > 0 || !!item.value?.isLivePhoto)
+
+const zipBusy = ref(false)
+const zipProgress = ref('')
 
 const proxyCover = computed(() => {
   const it = item.value
@@ -60,6 +64,24 @@ function downloadLivePhotos() {
   downloadMany(urls, filename.value)
   MessagePlugin.success(urls.length > 1 ? `正在依次下载 ${urls.length} 个实况动图` : '已开始下载实况动图')
 }
+
+/** 打包 iOS 可识别的实况照片（同名 JPG + MOV 配对 ZIP） */
+async function downloadIosLivePhotos() {
+  const it = item.value
+  if (!it) return
+  zipBusy.value = true
+  zipProgress.value = '准备中…'
+  try {
+    const { data, pairs } = await buildLivePhotoZip(it, (msg) => (zipProgress.value = msg))
+    downloadBytes(data, `${filename.value}-实况照片.zip`)
+    MessagePlugin.success(`已生成 ${pairs} 张实况照片 ZIP，传到 iPhone 保存即可识别`)
+  } catch (e) {
+    MessagePlugin.error(e instanceof Error ? e.message : '生成实况照片失败，请重试')
+  } finally {
+    zipBusy.value = false
+    zipProgress.value = ''
+  }
+}
 </script>
 
 <template>
@@ -87,10 +109,9 @@ function downloadLivePhotos() {
           ></video>
           <t-image v-else :src="proxyCover" fit="cover" :style="{ aspectRatio: '3 / 4' }" />
           <span class="live-badge" title="实况照片">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="8.4" />
-              <circle cx="14.8" cy="14.8" r="4" />
-              <circle cx="9.8" cy="9.8" r="1.1" fill="currentColor" stroke="none" />
+            <svg viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true">
+              <path d="M522.688 512.064A10.688 10.688 0 0 0 512 501.376a10.688 10.688 0 0 0-10.688 10.688 10.624 10.624 0 0 0 21.312 0z m64 0a74.624 74.624 0 1 1-149.248 0 74.624 74.624 0 0 1 149.248 0z" />
+              <path d="M686.912 511.936A174.976 174.976 0 1 0 336.96 512 174.976 174.976 0 0 0 686.912 512z m76.8 0a251.712 251.712 0 1 1-503.424-0.064 251.712 251.712 0 0 1 503.424 0zM640 858.432v-0.448a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM774.016 751.808v-0.448a38.4 38.4 0 1 1 76.736 0v0.448a38.4 38.4 0 1 1-76.8 0zM847.808 597.76v-0.384a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM847.808 427.072v-0.448a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM774.016 273.088V272.64a38.4 38.4 0 1 1 76.736 0v0.448a38.4 38.4 0 1 1-76.8 0zM640 166.4v-0.384a38.4 38.4 0 1 1 76.8 0V166.4a38.4 38.4 0 1 1-76.8 0zM473.6 128.448V128a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM307.2 166.4v-0.384a38.4 38.4 0 1 1 76.8 0V166.4a38.4 38.4 0 1 1-76.8 0zM173.248 273.088V272.64a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM99.456 427.072v-0.448a38.4 38.4 0 1 1 76.736 0v0.448a38.4 38.4 0 1 1-76.8 0zM99.456 597.76v-0.384a38.4 38.4 0 1 1 76.736 0v0.448a38.4 38.4 0 1 1-76.8 0zM173.248 751.808v-0.448a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM307.2 858.432v-0.448a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM473.6 896.448V896a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0z" />
             </svg>
           </span>
         </div>
@@ -125,7 +146,7 @@ function downloadLivePhotos() {
         <div class="author">
           <t-avatar :image="mediaUrl(item.author.avatar, { inline: true })" :size="'38px'" shape="round" />
           <span class="nickname">{{ item.author.nickname }}</span>
-          <span class="type">{{ isLivePhoto ? '实况动图' : isImage ? `图文 · ${item.images.length} 张` : '视频 · 无水印' }}</span>
+          <span class="type">{{ isLivePhoto ? '实况照片' : isImage ? `图文 · ${item.images.length} 张` : '视频 · 无水印' }}</span>
         </div>
 
         <div class="actions">
@@ -135,9 +156,10 @@ function downloadLivePhotos() {
             size="large"
             shape="round"
             theme="primary"
-            @click="downloadLivePhotos"
+            :loading="zipBusy"
+            @click="downloadIosLivePhotos"
           >
-            下载实况动图
+            {{ zipBusy ? zipProgress : '下载实况照片（iPhone 可用）' }}
           </t-button>
           <t-button
             v-else-if="!isImage"
@@ -159,7 +181,14 @@ function downloadLivePhotos() {
           >
             下载全部图片
           </t-button>
+          <t-button v-if="isLivePhoto" class="sub" variant="text" @click="downloadLivePhotos">
+            另存为动图 MP4
+          </t-button>
         </div>
+
+        <p v-if="isLivePhoto && !zipBusy" class="ios-tip">
+          ZIP 内含同名 JPG + MOV 配对：传到 iPhone 在「文件」中解压，同时选中一对文件 → 分享 →「存储图像」，相册中即为可播放的实况照片。
+        </p>
       </div>
     </article>
   </section>
@@ -347,6 +376,20 @@ function downloadLivePhotos() {
       box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
     }
   }
+  .sub {
+    flex-shrink: 0;
+    color: var(--dy-text-secondary);
+  }
+}
+.ios-tip {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--dy-text-muted);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed var(--dy-border);
+  border-radius: 12px;
+  padding: 10px 14px;
 }
 
 @media (max-width: 860px) {

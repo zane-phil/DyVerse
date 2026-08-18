@@ -289,14 +289,17 @@ function mapAweme(aweme) {
     .filter(Boolean)
 
   // 实况图（Live Photo）：images[i].video.play_addr 是动图视频流
-  const livePhotoUrls = sourceImages
-    .map((img) => {
-      const v = img && img.video
-      const list =
-        (v && (v.play_addr?.url_list || v.download_addr?.url_list || v.play_addr_h264?.url_list)) || []
-      return normalizePlay(firstUrl(list))
-    })
-    .filter(Boolean)
+  // 与 images 一一对应（保持索引对齐；无动图视频的图片 video 为空字符串）
+  const livePhotos = sourceImages.map((img) => {
+    const v = img && img.video
+    const list =
+      (v && (v.play_addr?.url_list || v.download_addr?.url_list || v.play_addr_h264?.url_list)) || []
+    return {
+      image: normalizePlay(firstUrl(img.url_list) || firstUrl(img.download_url_list) || ''),
+      video: normalizePlay(firstUrl(list)),
+    }
+  })
+  const livePhotoUrls = livePhotos.map((p) => p.video).filter(Boolean)
   const isLivePhoto = !!aweme.is_live_photo || livePhotoUrls.length > 0
 
   const coverSource =
@@ -319,6 +322,7 @@ function mapAweme(aweme) {
     videoUrl: isImage ? '' : noWm || fallbackPlay,
     videoUrlWatermark: isImage ? '' : wm || '',
     images: imageUrls,
+    livePhotos,
     livePhotoUrls,
     isLivePhoto,
     duration: video.duration ? Math.round(video.duration / 1000) : 0,
@@ -360,6 +364,9 @@ function metaFallback(html, id) {
       '/aweme/v1/playwm/',
     ),
     images: [],
+    livePhotos: [],
+    livePhotoUrls: [],
+    isLivePhoto: false,
     duration: 0,
     createTime: 0,
     statistics: { digg: 0, comment: 0, share: 0, collect: 0 },

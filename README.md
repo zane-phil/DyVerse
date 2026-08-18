@@ -43,7 +43,7 @@ DyVerse 是一个「打开即用」的本地抖音下载工具：
 | --- | --- | --- |
 | 🎬 视频下载 | 无水印原画 | `playwm` → `play` 地址转换，分辨率优先 1080P+（取决于源站提供） |
 | 🖼️ 图文笔记 | 单张下载 / 一键全部 | 图片以原始清晰度链接逐个保存 |
-| 🎞️ 实况动图 | Live Photo 动图下载 | 图文中的实况图以 `mp4` 动图形式保存，可循环预览 |
+| 🎞️ 实况照片 | iOS 可识别 Live Photo | 图文中的实况图打包为「同名 JPG + MOV」配对 ZIP，iPhone 相册保存后即为可播放的实况照片（另可单独另存 MP4 动图） |
 | 🔗 链接兼容 | 分享口令 / 短链 / 页面链接 | `v.douyin.com`、`douyin.com/video|note`、`iesdouyin.com/share/...` |
 | ▶️ 在线预览 | 视频 / 图片预览 | 通过本地代理内联播放与展示，不受防盗链影响 |
 | 📊 作品信息 | 关键信息 | 标题、作者、封面与预览，克制呈现 |
@@ -138,7 +138,8 @@ download_douyin/
 │  ├─ App.vue                # 单页骨架：解析状态与布局
 │  ├─ tdesign.d.ts           # TDesign 全局组件类型声明
 │  ├─ api/
-│  │  └─ douyin.ts           # 前端 API 客户端（解析 / 下载 / 批量下载）
+│  │  ├─ douyin.ts           # 前端 API 客户端（解析 / 下载 / 批量下载）
+│  │  └─ livePhoto.ts        # iOS 实况照片打包（JPEG 转码 + 同名 JPG/MOV 配对 ZIP）
 │  ├─ components/
 │  │  ├─ ParserInput.vue     # 链接输入 / 一键粘贴 / 解析
 │  │  └─ ResultCard.vue      # 解析结果（预览 / 作者 / 下载）
@@ -320,7 +321,7 @@ curl -X POST http://localhost:8787/api/parse \
 ```
 
 > 图文作品：`type` 为 `image`，`images` 为图片 URL 数组，`videoUrl` / `videoUrlWatermark` 为空字符串。
-> 实况动图：`isLivePhoto` 为 `true`，`livePhotoUrls` 为动图 mp4 直链数组（与 `images` 一一对应），前端以「下载实况动图」作为主操作。
+> 实况照片：`isLivePhoto` 为 `true`，`livePhotos` 为「静态图 + 动图视频」配对数组（与 `images` 一一对应），`livePhotoUrls` 为动图 mp4 直链数组（兼容字段）。前端主操作「下载实况照片」会将每对静态图转码为 JPEG、动图视频以 `.MOV` 命名，打包为同名配对 ZIP —— iPhone 在「文件」中解压后同时选中一对文件保存到相册，即得到可播放的实况照片。
 
 **异常响应**
 
