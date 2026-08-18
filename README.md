@@ -1,7 +1,7 @@
 # DyVerse · 抖音视频 / 图文下载器
 
 > 一个拥有高级质感界面的抖音内容下载 Web 项目：**Vue 3 + TypeScript + TDesign UI + Less + Node.js 代理服务**。
-> 支持抖音分享口令 / 短链接 / 视频页 / 图文笔记的一键解析，无水印视频下载与图文批量保存。
+> 支持抖音分享口令 / 短链接 / 视频页 / 图文笔记 / 实况动图（Live Photo）的一键解析，无水印视频下载、图文批量保存与实况动图下载。
 
 ![Vue](https://img.shields.io/badge/Vue-3.5-42b883) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6) ![TDesign](https://img.shields.io/badge/TDesign-1.x-0052d9) ![Less](https://img.shields.io/badge/Less-4.x-1d365d) ![Express](https://img.shields.io/badge/Express-5.x-000000) ![Node](https://img.shields.io/badge/Node-20%2B-339933) ![License](https://img.shields.io/badge/License-Private-8b5cf6)
 
@@ -30,10 +30,10 @@ DyVerse 是一个「打开即用」的本地抖音下载工具：
 
 - 把抖音 App 里的**分享口令 / 短链接 / 视频页 / 图文笔记链接**粘贴进来，点击「立即解析」；
 - 后端在本机完成链接还原、作品信息抓取与媒体地址提取；
-- 前端以卡片形式展示作品信息（标题、作者、封面、点赞/评论/收藏/分享、时长、分辨率、音乐等），并提供 **无水印视频 / 带水印视频 / 封面 / 图文全部图片** 等多种下载方式；
+- 前端以极简卡片展示作品（标题、作者、封面预览）与 **无水印视频 / 图文全部图片** 下载；
 - 视频与图片通过本地代理服务中转下载，规避跨域与防盗链限制。
 
-整体采用**黑白灰极简主题 + 玻璃拟态**设计，强调层次感与质感：中性光晕背景、毛玻璃卡片、渐变描边、悬浮动效、滚动渐显等。
+整体采用**黑白灰极简**设计：单一核心流程（粘贴 → 解析 → 下载），克制的中性光晕背景、低饱和玻璃卡片与克制的动效。
 
 ---
 
@@ -41,15 +41,15 @@ DyVerse 是一个「打开即用」的本地抖音下载工具：
 
 | 类别 | 能力 | 说明 |
 | --- | --- | --- |
-| 🎬 视频下载 | 无水印原画 / 带水印 | `playwm` → `play` 地址转换，分辨率优先 1080P+（取决于源站提供） |
+| 🎬 视频下载 | 无水印原画 | `playwm` → `play` 地址转换，分辨率优先 1080P+（取决于源站提供） |
 | 🖼️ 图文笔记 | 单张下载 / 一键全部 | 图片以原始清晰度链接逐个保存 |
+| 🎞️ 实况动图 | Live Photo 动图下载 | 图文中的实况图以 `mp4` 动图形式保存，可循环预览 |
 | 🔗 链接兼容 | 分享口令 / 短链 / 页面链接 | `v.douyin.com`、`douyin.com/video|note`、`iesdouyin.com/share/...` |
 | ▶️ 在线预览 | 视频 / 图片预览 | 通过本地代理内联播放与展示，不受防盗链影响 |
-| 📊 作品信息 | 完整元数据 | 标题、作者（昵称/头像/ID/签名）、封面、四维数据、时长、分辨率、原声 |
-| 📜 解析历史 | 本地记录 | 最多保留 12 条，一键重新解析，数据仅存浏览器 localStorage |
+| 📊 作品信息 | 关键信息 | 标题、作者、封面与预览，克制呈现 |
 | 🛡️ 隐私安全 | 全程本地 | 解析与媒体中转均在本机完成，不经过任何第三方服务器 |
 | 📱 响应式 | 多端适配 | 桌面 / 平板 / 手机自适应，无横向溢出 |
-| 🎨 视觉设计 | 黑白灰 + 玻璃拟态 | 单色系设计令牌统一管理，动效克制动人 |
+| 🎨 视觉设计 | 黑白灰极简 | 单色系设计令牌统一管理，只保留核心流程 |
 
 ---
 
@@ -102,6 +102,8 @@ npm run dev:all
 
 前端开发服务器已配置代理：所有 `/api/*` 请求自动转发到 `http://localhost:8787`，无需额外配置跨域。
 
+> **端口占用自动 +1**：若 5173 / 8787 已被其他程序占用，Vite 与后端会分别自动切换到下一个可用端口（5174、8788…），并在终端提示实际地址。`dev:all` 会先等待后端就绪再启动前端，前端代理自动读取后端实际端口，无需手动改配置。
+
 ### 4.4 生产模式
 
 ```bash
@@ -116,6 +118,7 @@ npm start       # 启动后端，同时托管 dist 静态资源与 API
 | 命令 | 说明 |
 | --- | --- |
 | `npm run dev` | 仅启动前端（需要后端已在 8787 运行） |
+| `npm run predev` | 等待后端写入端口文件并确认可访问（`npm run dev` 前自动执行） |
 | `npm run server` | 仅启动后端 |
 | `npm run dev:all` | 前后端并行（开发推荐） |
 | `npm run build` | `vue-tsc -b` 类型检查 + `vite build` 构建 |
@@ -132,26 +135,20 @@ download_douyin/
 │  └─ index.mjs              # Express 代理服务（解析 + 下载中转 + 静态托管）
 ├─ src/
 │  ├─ main.ts                # 应用入口：注册 TDesign、导入主题样式
-│  ├─ App.vue                # 页面骨架：状态编排、历史记录、滚动渐显
+│  ├─ App.vue                # 单页骨架：解析状态与布局
 │  ├─ tdesign.d.ts           # TDesign 全局组件类型声明
 │  ├─ api/
 │  │  └─ douyin.ts           # 前端 API 客户端（解析 / 下载 / 批量下载）
 │  ├─ components/
-│  │  ├─ BackgroundFX.vue    # 背景特效（光晕 / 网格 / 噪点 / 暗角）
-│  │  ├─ NavBar.vue          # 顶部导航（毛玻璃固定）
-│  │  ├─ HeroInput.vue       # Hero 区 + 链接输入 / 粘贴 / 解析
-│  │  ├─ ResultCard.vue      # 解析结果卡（预览 / 信息 / 下载操作）
-│  │  ├─ FeatureGrid.vue     # 功能亮点区
-│  │  ├─ HowTo.vue           # 三步使用教程
-│  │  ├─ HistoryPanel.vue    # 本地解析历史
-│  │  └─ AppFooter.vue       # 页脚（免责声明 / 技术栈 / 返回顶部）
+│  │  ├─ ParserInput.vue     # 链接输入 / 一键粘贴 / 解析
+│  │  └─ ResultCard.vue      # 解析结果（预览 / 作者 / 下载）
 │  ├─ styles/
 │  │  ├─ variables.less      # 设计令牌（颜色 / 圆角 / 阴影 / 字体）
 │  │  └─ global.less         # 全局样式与工具类
 │  ├─ types/
-│  │  └─ index.ts            # DouyinMedia / ParseResult / HistoryItem 类型
+│  │  └─ index.ts            # DouyinMedia / ParseResult 类型
 │  └─ utils/
-│     └─ format.ts           # 格式化工具（计数 / 时长 / 日期 / 文件名）
+│     └─ format.ts           # 格式化工具（相对时间 / 文件名）
 ├─ public/
 │  └─ favicon.svg            # 站点图标
 ├─ index.html                # HTML 入口（含 SEO meta）
@@ -170,33 +167,28 @@ download_douyin/
 
 | 令牌 | 值 | 用途 |
 | --- | --- | --- |
-| `--dy-bg` | `#07070e` | 页面主背景 |
+| `--dy-bg` | `#0a0a0d` | 页面主背景 |
 | `--dy-surface` | `rgba(255,255,255,.04)` | 毛玻璃卡片底色 |
 | `--dy-border` | `rgba(255,255,255,.09)` | 卡片描边 |
-| `--dy-primary` | `#f5f5f7` | 品牌白（主按钮 / 高对比） |
-| `--dy-cyan` | `#cfd0d6` | 浅灰点缀 |
-| `--dy-pink` | `#a9a9b2` | 中灰点缀 |
-| `--dy-green` | `#8f8f99` | 中性灰（成功 / 隐私提示） |
-| `--dy-radius-xl` | `24px` | 大卡片圆角 |
+| `--dy-primary` | `#ffffff` | 品牌白（主按钮 / 高对比） |
+| `--dy-radius-xl` | `22px` | 大卡片圆角 |
 | `--dy-shadow-1/2` | 多层阴影 | 悬浮层次 |
 
 **视觉层次**（从上到下）：
 
-1. **背景层**：三团柔和中性光晕（白/浅灰）+ 网格 + 噪点 + 暗角，营造空间纵深；
-2. **导航层**：毛玻璃固定顶栏，带悬浮下划线导航；
-3. **Hero 层**：大标题（白→灰渐变流光文字）、副标题、玻璃解析卡片（渐变描边 + 内发光）、数据统计条；
-4. **结果层**：媒体预览 + 信息区（标题 / 作者 / 四维数据 / 元信息 / 操作按钮），带入场动画；
-5. **内容层**：功能亮点卡片（hover 抬升 + 角落光斑）、三步教程；
-6. **历史层**：本地解析记录列表；
-7. **页脚层**：免责声明 + 技术栈标签 + 返回顶部。
+1. **背景层**：两团柔和中性光晕，营造干净纵深；
+2. **顶栏**：固定毛玻璃，仅品牌 + 一句说明；
+3. **输入层**：标题、副标题与解析卡片（文本域 + 读取剪贴板 + 立即解析）；
+4. **结果层**：媒体预览 + 标题 / 作者 + 下载主操作，带入场动画；
+5. **页脚层**：一行免责声明。
 
 ### 6.2 页面数据流
 
 ```
-用户在 HeroInput 粘贴链接
+用户在 ParserInput 粘贴链接
         │
         ▼
-HeroInput.handleParse()
+ParserInput.handleParse()
   └─ 校验是否包含抖音域名
   └─ POST /api/parse ──────────────► 后端解析（见第 7 节）
         │                                │
@@ -205,35 +197,11 @@ HeroInput.handleParse()
 emit('parsed', result)
   └─ App.handleParsed()
        ├─ result.value = payload        → ResultCard 渲染
-       ├─ addHistory(payload)           → localStorage（最多 12 条）
-       └─ scrollIntoView(#result)       → 平滑滚动到结果区
+       └─ 结果卡紧随输入区出现，无需滚动
 ```
 
 - **下载**：`ResultCard` 通过 `triggerDownload()` 创建临时 `<a>` 指向 `/api/download?...`，由后端代理流式下载；
 - **图文批量**：`downloadMany()` 按 650ms 间隔逐个触发下载，避免浏览器拦截；
-- **历史重解析**：`HistoryPanel` 点击「重新解析」→ `HeroInput.fill(url, autoParse=true)` 自动填入并立即解析。
-
-### 6.3 本地历史记录
-
-存储键：`dyverse-history`，结构示例：
-
-```json
-[
-  {
-    "id": "7640701464617132402",
-    "type": "image",
-    "title": "5.17初中数学教资面试真题（包含题本）…",
-    "cover": "https://p26-sign.douyinpic.com/...",
-    "author": "李饭饭的饭",
-    "videoUrl": "",
-    "sourceUrl": "https://www.douyin.com/note/7640701464617132402",
-    "time": 1778989440
-  }
-]
-```
-
-> 仅保存在浏览器本地，清空记录不会删除已下载文件。
-
 ---
 
 ## 7. 后端解析原理
@@ -249,35 +217,37 @@ emit('parsed', result)
    │
    ├─ 3. 提取作品 ID   video|note|share/(video|note)/\d+ 等
    │
-   ├─ 4. 抓详情页  多入口按顺序尝试：
-   │    ① https://www.iesdouyin.com/share/video/{id}   （移动端 UA，SSR 直出数据）
-   │    ② https://www.iesdouyin.com/share/note/{id}
-   │    ③ https://www.douyin.com/video/{id}            （PC UA）
-   │    ④ https://www.douyin.com/note/{id}
+   ├─ 4. 注册设备指纹  调用 ttwid 注册接口获取匿名 Cookie（ttwid），
+   │                    缓存并在过期时自动刷新
    │
-   ├─ 5. 提取 JSON  按优先级解析页面内数据：
-   │    ① __UNIVERSAL_DATA_FOR_REHYDRATION__
-   │    ② RENDER_DATA（URL 编码）
-   │    ③ window._ROUTER_DATA
+   ├─ 5. 抓详情数据  优先请求 web 详情接口（携带 ttwid）：
+   │    ① https://www.douyin.com/aweme/v1/web/aweme/detail/
+   │       （完整数据，含实况动图 images[].video）
+   │    ② 失败时回退分享页 SSR 数据：
+   │       iesdouyin.com/share/video|note/{id}
+   │       www.douyin.com/video|note/{id}
    │
    ├─ 6. 定位作品   递归查找 item_list / awemeDetail / detail / aweme 节点
    │
    ├─ 7. 字段映射   title / author / cover / statistics / music / duration / width / height
    │                video.play_addr.url_list → 无水印（playwm → play）
    │                images[].url_list        → 高清图片列表
+   │                images[].video.play_addr → 实况动图视频流
    │
    └─ 8. 兜底       若页面无法解析，读取 OG meta 提取标题/封面，并
                     以作品 ID 构造播放地址
 ```
 
-### 7.2 为什么优先 `iesdouyin.com`
+### 7.2 为什么用 web 详情接口
 
-抖音主站 `www.douyin.com` 对非浏览器请求会返回 **JS 反爬验证页**（`byted_acrawler` 挑战），Node 端无法执行 JS 通过校验；而移动端分享页 `iesdouyin.com/share/...` 使用移动 UA 直接返回包含 `window._ROUTER_DATA` 的 SSR HTML，数据完整且无需额外签名，因此作为首选入口。
+抖音主站 `www.douyin.com/aweme/v1/web/aweme/detail/` 返回最完整的作品数据，**实况动图（Live Photo）的视频流只存在于该接口**：分享页 SSR 数据中的 `images[]` 仅有静态图，而详情接口会在每张图片下附带 `images[].video.play_addr.url_list`（动图 mp4）与 `is_live_photo` 标记。
+
+匿名直接请求该接口会被抖音「反爬虫」策略拦截（返回空响应体）。服务端先调用 `ttwid.bytedance.com` 的 union/register 接口注册匿名设备指纹（`ttwid` Cookie），携带后即可稳定通过校验；ttwid 有有效期，接口返回空时自动刷新重试。无需实现 a_bogus 等复杂签名。
 
 ### 7.3 无水印处理
 
 - 源站播放地址形如 `https://aweme.snssdk.com/aweme/v1/playwm/?video_id=...&ratio=720p&line=0`；
-- 后端将 `playwm` 替换为 `play` 得到无水印地址，同时保留原地址作为「带水印版」；
+- 后端将 `playwm` 替换为 `play` 得到无水印地址；
 - 对图文作品会做**坏地址防护**：若 `video_id` 参数本身是完整 URL（图文帖常见异常），视频字段直接置空，避免生成无效链接。
 
 ### 7.4 下载代理
@@ -337,6 +307,8 @@ curl -X POST http://localhost:8787/api/parse \
     "videoUrl": "https://aweme.snssdk.com/aweme/v1/play/?video_id=...",
     "videoUrlWatermark": "https://aweme.snssdk.com/aweme/v1/playwm/?video_id=...",
     "images": [],
+    "livePhotoUrls": [],
+    "isLivePhoto": false,
     "duration": 96,
     "createTime": 1769072677,
     "statistics": { "digg": 1064, "comment": 58, "share": 56, "collect": 114 },
@@ -348,6 +320,7 @@ curl -X POST http://localhost:8787/api/parse \
 ```
 
 > 图文作品：`type` 为 `image`，`images` 为图片 URL 数组，`videoUrl` / `videoUrlWatermark` 为空字符串。
+> 实况动图：`isLivePhoto` 为 `true`，`livePhotoUrls` 为动图 mp4 直链数组（与 `images` 一一对应），前端以「下载实况动图」作为主操作。
 
 **异常响应**
 
@@ -392,8 +365,8 @@ Content-Length: 15504346
 | `PORT`（环境变量） | `8787` | 后端服务端口 |
 | Vite 开发端口 | `5173` | `vite.config.ts` 中 `server.port` |
 | `/api` 代理 | `http://localhost:8787` | `vite.config.ts` 中 `server.proxy` |
-| 历史记录键 | `dyverse-history` | 前端 localStorage |
-| 历史保留条数 | `12` | `App.vue` 中 `history.slice(0, 12)` |
+
+**端口冲突策略**：后端监听失败（`EADDRINUSE`）时自动在 `8787~8806` 范围内逐个 +1 尝试，并把实际端口写入 `.dyverse-port.json`（已加入 `.gitignore`）；Vite 在 `5173` 被占用时自动使用下一个可用端口；前端 `/api` 代理启动时读取 `.dyverse-port.json` 定位后端实际端口。
 
 项目当前无需 `.env` 文件；如需要可自行引入 `dotenv` 读取环境变量。
 
@@ -421,11 +394,7 @@ Content-Length: 15504346
 - 开发：修改 `vite.config.ts` 中 `server.port`；
 - 后端：启动前设置环境变量 `PORT`，例如 `$env:PORT=9000; npm run server`（Vite 代理目标需同步修改）。
 
-### 10.6 历史记录不显示
-- 检查浏览器 localStorage 是否被禁用；
-- 清理记录后需重新解析才会写入新记录。
-
-### 10.7 部署到服务器后无法解析
+### 10.6 部署到服务器后无法解析
 - 部分云服务器 IP 会被抖音风控拦截（验证页），本工具设计为**本机使用**；
 - 若必须部署，建议使用家庭宽带 IP 并控制请求频率。
 

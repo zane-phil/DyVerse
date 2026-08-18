@@ -1,133 +1,118 @@
-﻿<script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
-import BackgroundFX from './components/BackgroundFX.vue'
-import NavBar from './components/NavBar.vue'
-import HeroInput from './components/HeroInput.vue'
+<script setup lang="ts">
+import { ref } from 'vue'
+import ParserInput from './components/ParserInput.vue'
 import ResultCard from './components/ResultCard.vue'
-import FeatureGrid from './components/FeatureGrid.vue'
-import HowTo from './components/HowTo.vue'
-import HistoryPanel from './components/HistoryPanel.vue'
-import AppFooter from './components/AppFooter.vue'
-import type { ParseResult, HistoryItem } from './types'
-
-const HISTORY_KEY = 'dyverse-history'
+import type { ParseResult } from './types'
 
 const result = ref<ParseResult | null>(null)
-const parseError = ref('')
-const history = ref<HistoryItem[]>([])
-const heroRef = ref<InstanceType<typeof HeroInput>>()
-const resultRef = ref<HTMLElement>()
-
-function loadHistory() {
-  try {
-    history.value = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
-  } catch {
-    history.value = []
-  }
-}
-
-function saveHistory() {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.value.slice(0, 12)))
-}
-
-function addHistory(payload: ParseResult) {
-  const item = payload.item
-  if (!item) return
-  const entry: HistoryItem = {
-    id: item.id,
-    type: item.type,
-    title: item.title,
-    cover: item.cover,
-    author: item.author.nickname,
-    videoUrl: item.videoUrl,
-    sourceUrl: payload.sourceUrl,
-    time: Math.floor(Date.now() / 1000),
-  }
-  history.value = [entry, ...history.value.filter((h) => h.id !== entry.id)]
-  saveHistory()
-}
 
 function handleParsed(payload: ParseResult) {
   result.value = payload
-  parseError.value = ''
-  addHistory(payload)
-  nextTick(() => {
-    resultRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  })
 }
-
-function handleError(message: string) {
-  parseError.value = message
-}
-
-function handleReparse(item: HistoryItem) {
-  result.value = null
-  nextTick(() => {
-    heroRef.value?.fill(item.sourceUrl || item.videoUrl, true)
-    document.querySelector('#parser')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  })
-}
-
-function handleClearHistory() {
-  history.value = []
-  saveHistory()
-  MessagePluginSuccess()
-}
-
-function MessagePluginSuccess() {
-  import('tdesign-vue-next').then(({ MessagePlugin }) => MessagePlugin.success('已清空解析记录'))
-}
-
-onMounted(() => {
-  loadHistory()
-  // scroll reveal
-  const els = document.querySelectorAll('[data-reveal]')
-  const io = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((e) => {
-        if (e.isIntersecting) {
-          e.target.classList.add('is-visible')
-          io.unobserve(e.target)
-        }
-      })
-    },
-    { threshold: 0.12, rootMargin: '0px 0px -40px 0px' },
-  )
-  els.forEach((el) => io.observe(el))
-})
 </script>
 
 <template>
-  <div id="top" class="app">
-    <BackgroundFX />
-    <NavBar />
+  <div class="app">
+    <!-- 顶部：仅品牌 + 状态 -->
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <span class="brand-mark">D</span>
+          <span class="brand-name">DyVerse</span>
+        </div>
+        <div class="brand-note">抖音无水印解析</div>
+      </div>
+    </header>
 
     <main class="main">
-      <HeroInput ref="heroRef" @parsed="handleParsed" @error="handleError" />
+      <ParserInput @parsed="handleParsed" />
 
-      <!-- 结果区 -->
-      <div ref="resultRef" class="result-anchor">
+      <Transition name="fade-up">
         <ResultCard v-if="result" :result="result" />
-      </div>
-
-      <FeatureGrid />
-      <HowTo />
-      <HistoryPanel :items="history" @reparse="handleReparse" @clear="handleClearHistory" />
+      </Transition>
     </main>
 
-    <AppFooter />
+    <footer class="footer">
+      <p>本工具仅用于个人学习与收藏，内容版权归原作者所有。</p>
+    </footer>
   </div>
 </template>
 
 <style scoped lang="less">
 .app {
-  position: relative;
-  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
+
+.topbar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 100;
+  background: rgba(10, 10, 13, 0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--dy-border);
+}
+.topbar-inner {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 800;
+  color: #0b0b0d;
+  background: linear-gradient(135deg, #ffffff, #b9b9c2);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+.brand-name {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.brand-note {
+  font-size: 12.5px;
+  color: var(--dy-text-muted);
+}
+
 .main {
-  position: relative;
+  flex: 1;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 110px 24px 40px;
 }
-.result-anchor {
-  scroll-margin-top: 80px;
+
+.footer {
+  padding: 26px 24px 30px;
+  text-align: center;
+  p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--dy-text-muted);
+    opacity: 0.7;
+  }
+}
+
+.fade-up-enter-active {
+  transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.fade-up-enter-from {
+  opacity: 0;
+  transform: translateY(18px);
 }
 </style>

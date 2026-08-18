@@ -12,10 +12,12 @@ export interface DouyinMedia {
   cover: string
   /** 无水印视频直链 */
   videoUrl: string
-  /** 带水印视频直链 */
-  videoUrlWatermark: string
   /** 图文原始图片 */
   images: string[]
+  /** 实况图（Live Photo）动图视频直链 */
+  livePhotoUrls: string[]
+  /** 是否为实况图 */
+  isLivePhoto: boolean
   duration: number
   createTime: number
   statistics: {
@@ -34,15 +36,4 @@ export interface ParseResult {
   resolvedUrl: string
   item: DouyinMedia | null
   message?: string
-}
-
-export interface HistoryItem {
-  id: string
-  type: 'video' | 'image'
-  title: string
-  cover: string
-  author: string
-  videoUrl: string
-  sourceUrl: string
-  time: number
 }

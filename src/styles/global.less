@@ -1,5 +1,5 @@
 /* ============================================================
-   DyVerse Global Styles · Monochrome
+   Global Styles
    ============================================================ */
 
 * {
@@ -16,9 +16,8 @@ body {
   font-family: var(--dy-font-display);
   color: var(--dy-text);
   background:
-    radial-gradient(1100px 720px at 88% -8%, rgba(255, 255, 255, 0.09), transparent 58%),
-    radial-gradient(1000px 720px at -12% 18%, rgba(255, 255, 255, 0.05), transparent 55%),
-    radial-gradient(980px 880px at 50% 118%, rgba(120, 120, 130, 0.07), transparent 60%),
+    radial-gradient(900px 600px at 85% -10%, rgba(255, 255, 255, 0.07), transparent 55%),
+    radial-gradient(800px 600px at -10% 20%, rgba(255, 255, 255, 0.04), transparent 55%),
     var(--dy-bg);
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
@@ -33,100 +32,24 @@ body {
 }
 
 ::selection {
-  background: rgba(255, 255, 255, 0.28);
-  color: #000;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(150, 150, 160, 0.4));
+  background: rgba(255, 255, 255, 0.18);
   border-radius: 8px;
-  border: 2px solid var(--dy-bg);
 }
-
-/* ---------- Utility ---------- */
-.glass {
-  background: var(--dy-surface);
-  border: 1px solid var(--dy-border);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  border-radius: var(--dy-radius-xl);
-  box-shadow: var(--dy-shadow-1);
-}
-
-.gradient-text {
-  background: linear-gradient(100deg, #ffffff 0%, #d4d4da 30%, #8a8a94 62%, #e8e8ec 100%);
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: gradientFlow 6s ease infinite;
-}
-
-@keyframes gradientFlow {
-  0% { background-position: 0% center; }
-  50% { background-position: 100% center; }
-  100% { background-position: 0% center; }
-}
-
-.section-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--dy-border-strong);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--dy-text-secondary);
-  font-size: 13px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  backdrop-filter: blur(10px);
-}
-.section-eyebrow .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--dy-cyan);
-  box-shadow: 0 0 10px var(--dy-cyan);
-  animation: pulseDot 2.4s ease-in-out infinite;
-}
-@keyframes pulseDot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.45; transform: scale(0.75); }
-}
-
-.section-title {
-  font-size: clamp(28px, 4vw, 42px);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-  margin: 18px 0 12px;
-}
-.section-sub {
-  color: var(--dy-text-secondary);
-  font-size: 16px;
-  line-height: 1.7;
-  max-width: 620px;
-  margin: 0 auto;
-}
-
-/* Scroll reveal */
-[data-reveal] {
-  opacity: 0;
-  transform: translateY(26px);
-  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1), transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
-}
-[data-reveal].is-visible {
-  opacity: 1;
-  transform: translateY(0);
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* ---------- TDesign · 黑白灰品牌色 ---------- */
@@ -153,19 +76,11 @@ body {
 .t-button--variant-base {
   font-weight: 600;
 }
-.t-button--size-large {
-  font-size: 15px;
-}
 .t-textarea__inner,
 .t-input__inner {
   font-family: var(--dy-font-display) !important;
 }
-.t-tag {
-  backdrop-filter: blur(8px);
-}
-.t-image__wrapper {
-  border-radius: 16px;
-}
 .t-message {
   backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }

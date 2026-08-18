@@ -24,6 +24,8 @@ const UA_MOBILE =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
 
 let cookieJar = ''
+let ttwidCookie = ''
+let ttwidExpire = 0
 
 function mergeCookies(res) {
   try {
@@ -37,6 +39,50 @@ function mergeCookies(res) {
   } catch {
     /* noop */
   }
+}
+
+/** 注册抖音匿名设备 cookie（ttwid），web detail 接口需要它才不会被反爬拦截 */
+async function registerTtwid(force = false) {
+  if (!force && ttwidCookie && Date.now() < ttwidExpire) return ttwidCookie
+  try {
+    const res = await fetch('https://ttwid.bytedance.com/ttwid/union/register/', {
+      method: 'POST',
+      headers: {
+        'User-Agent': UA_PC,
+        'Content-Type': 'application/json',
+        Accept: '*/*',
+        Origin: 'https://www.douyin.com',
+        Referer: 'https://www.douyin.com/',
+      },
+      body: JSON.stringify({
+        region: 'cn',
+        aid: 6383,
+        needFid: false,
+        service: 'www.douyin.com',
+        migrate_info: { ticket: '', source: 'node' },
+        cbUrlProtocol: 'https',
+        union: true,
+      }),
+      redirect: 'follow',
+    })
+    const setCookies = res.headers.getSetCookie?.() || []
+    const pair = setCookies.find((c) => c.startsWith('ttwid='))
+    if (pair) {
+      ttwidCookie = pair.split(';')[0].trim()
+      // ttwid 中的数字段是注册时间而非过期时间，按 24 小时窗口缓存复用
+      ttwidExpire = Date.now() + 24 * 60 * 60 * 1000
+      // 让通用请求也带上 ttwid（刷新时替换旧值）
+      const parts = cookieJar
+        .split(';')
+        .map((s) => s.trim())
+        .filter((s) => s && !s.startsWith('ttwid='))
+      parts.push(ttwidCookie)
+      cookieJar = parts.join('; ')
+    }
+  } catch {
+    /* ttwid 获取失败时保持现状 */
+  }
+  return ttwidCookie
 }
 
 async function fetchPage(url, { ua = UA_PC, referer = 'https://www.douyin.com/' } = {}) {
@@ -242,6 +288,17 @@ function mapAweme(aweme) {
     .map((img) => normalizePlay(firstUrl(img.url_list) || firstUrl(img.download_url_list) || ''))
     .filter(Boolean)
 
+  // 实况图（Live Photo）：images[i].video.play_addr 是动图视频流
+  const livePhotoUrls = sourceImages
+    .map((img) => {
+      const v = img && img.video
+      const list =
+        (v && (v.play_addr?.url_list || v.download_addr?.url_list || v.play_addr_h264?.url_list)) || []
+      return normalizePlay(firstUrl(list))
+    })
+    .filter(Boolean)
+  const isLivePhoto = !!aweme.is_live_photo || livePhotoUrls.length > 0
+
   const coverSource =
     firstUrl(video.cover?.url_list) ||
     firstUrl(video.origin_cover?.url_list) ||
@@ -262,6 +319,8 @@ function mapAweme(aweme) {
     videoUrl: isImage ? '' : noWm || fallbackPlay,
     videoUrlWatermark: isImage ? '' : wm || '',
     images: imageUrls,
+    livePhotoUrls,
+    isLivePhoto,
     duration: video.duration ? Math.round(video.duration / 1000) : 0,
     createTime: aweme.create_time || 0,
     statistics: {
@@ -324,6 +383,47 @@ async function tryIesApi(id) {
   }
 }
 
+/** web 详情接口：包含实况图（live photo）的完整数据，需要 ttwid cookie */
+async function tryWebDetailApi(id) {
+  await registerTtwid()
+  const attempt = async (forceTtwid) => {
+    if (forceTtwid) await registerTtwid(true)
+    if (!ttwidCookie) return null
+    const params = new URLSearchParams({
+      aweme_id: String(id),
+      aid: '6383',
+      version_code: '190500',
+      version_name: '19.5.0',
+      device_platform: 'webapp',
+      os: 'windows',
+      channel: 'channel_pc_web',
+    })
+    const res = await fetch(`https://www.douyin.com/aweme/v1/web/aweme/detail/?${params}`, {
+      headers: {
+        'User-Agent': UA_PC,
+        Accept: 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.5',
+        Referer: `https://www.douyin.com/note/${id}`,
+        Cookie: ttwidCookie,
+      },
+      redirect: 'follow',
+    })
+    if (!res.ok) return null
+    const text = await res.text()
+    if (!text) return null
+    const data = JSON.parse(text)
+    return data && data.aweme_detail && data.aweme_detail.aweme_id ? mapAweme(data.aweme_detail) : null
+  }
+  try {
+    const first = await attempt(false)
+    if (first) return first
+    // ttwid 可能已过期，刷新后再试一次
+    return await attempt(true)
+  } catch {
+    return null
+  }
+}
+
 /* ---------------- routes ---------------- */
 app.post('/api/parse', async (req, res) => {
   try {
@@ -347,18 +447,30 @@ app.post('/api/parse', async (req, res) => {
     }
 
     let item = null
+
+    // 1) web 详情接口优先：包含实况图（Live Photo）等完整数据
     try {
-      const html = await fetchDetailHtml(id)
-      if (html) {
-        const blob = extractJsonBlob(html)
-        const aweme = blob ? findAweme(blob) : null
-        if (aweme) item = mapAweme(aweme)
-        if (!item) item = metaFallback(html, id)
+      item = await tryWebDetailApi(id)
+    } catch {
+      item = null
+    }
+
+    // 2) 失败则回退到分享页内嵌数据
+    try {
+      if (!item || (!item.videoUrl && !item.images.length && !item.livePhotoUrls.length)) {
+        const html = await fetchDetailHtml(id)
+        if (html) {
+          const blob = extractJsonBlob(html)
+          const aweme = blob ? findAweme(blob) : null
+          if (aweme) item = mapAweme(aweme)
+          if (!item) item = metaFallback(html, id)
+        }
       }
     } catch {
       /* fallthrough */
     }
 
+    // 3) 最后的兜底
     if (!item || (!item.videoUrl && !item.images.length)) {
       const apiItem = await tryIesApi(id)
       if (apiItem) item = apiItem
@@ -461,6 +573,38 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: '服务器内部错误' })
 })
 
-app.listen(PORT, () => {
-  console.log(`[DyVerse] server listening on http://localhost:${PORT}`)
+/* ---------------- listen (port auto-increment) ---------------- */
+const PORT_FILE = path.resolve(__dirname, '../.dyverse-port.json')
+
+async function listenWithFallback(basePort, maxShift = 20) {
+  for (let shift = 0; shift < maxShift; shift++) {
+    const port = basePort + shift
+    const server = await new Promise((resolve, reject) => {
+      const srv = app.listen(port)
+      srv.once('listening', () => resolve(srv))
+      srv.once('error', (err) => {
+        if (err && err.code === 'EADDRINUSE') resolve(null)
+        else reject(err)
+      })
+    })
+    if (server) {
+      try {
+        fs.writeFileSync(PORT_FILE, JSON.stringify({ port }), 'utf8')
+      } catch {
+        /* 端口文件写入失败不影响服务 */
+      }
+      console.log(
+        shift === 0
+          ? `[DyVerse] server listening on http://localhost:${port}`
+          : `[DyVerse] 端口 ${basePort} 被占用，已切换到 http://localhost:${port}`,
+      )
+      return server
+    }
+  }
+  throw new Error(`端口 ${basePort}~${basePort + maxShift - 1} 均被占用，请关闭占用进程后重试`)
+}
+
+listenWithFallback(PORT).catch((err) => {
+  console.error('[DyVerse] 启动失败:', err.message)
+  process.exit(1)
 })
