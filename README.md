@@ -153,6 +153,7 @@ docker compose up -d --build
 
 - 浏览器打开 `http://<NAS_IP>:8787` 即可使用；如需域名 / HTTPS 外网访问，用 NAS 自带的反向代理即可；
 - 国内网络拉取 `ghcr.io` 可能缓慢或失败：可配置镜像加速 / 代理，或改用**方式二**本地构建（构建依赖 npm，同样建议配置 npm 镜像如 `https://registry.npmmirror.com`）；
+- **离线包方案（绕开 ghcr 网络）**：每次推送 main，工作流会自动在 **GitHub Releases**（标签 `docker-bundle`，地址 `https://github.com/zane-phil/DyVerse/releases/tag/docker-bundle`）发布 `dyverse-amd64.tar.gz` / `dyverse-arm64.tar.gz` 离线镜像包。直接下载对应架构的文件，拷贝到 NAS 后执行 `docker load -i dyverse-amd64.tar.gz`（x86_64 机型）即可导入，之后 `docker run -d --name dyverse --restart unless-stopped -p 8787:8787 dyverse:latest` 启动；
 - 本项目无数据库、无持久化数据（端口文件仅运行时临时写入），无需挂载卷；更新镜像 `docker compose pull && docker compose up -d` 即可。
 
 ### 4.6 脚本一览

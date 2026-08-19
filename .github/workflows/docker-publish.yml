@@ -10,7 +10,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: Checkout
@@ -29,7 +29,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push (multi-arch)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -38,3 +38,49 @@ jobs:
           tags: |
             ghcr.io/zane-phil/dyverse:latest
             ghcr.io/zane-phil/dyverse:${{ github.sha }}
+
+      # ---------- 离线镜像包（供 GitHub Releases 直接下载，NAS docker load 导入） ----------
+      - name: Export amd64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          outputs: type=docker,dest=/tmp/dyverse-amd64.tar
+          tags: dyverse:latest
+
+      - name: Export arm64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          outputs: type=docker,dest=/tmp/dyverse-arm64.tar
+          tags: dyverse:latest
+
+      - name: Compress offline bundles
+        run: |
+          gzip -k /tmp/dyverse-amd64.tar
+          gzip -k /tmp/dyverse-arm64.tar
+          ls -lh /tmp/dyverse-*.tar.gz
+
+      - name: Publish offline bundle (Releases, overwrite)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: docker-bundle
+          name: 'DyVerse Docker 离线镜像包'
+          body: |
+            每次推送 main 自动更新。选择与 NAS 架构匹配的文件下载，然后：
+
+            ```bash
+            # 将 tar.gz 拷贝到 NAS 后执行：
+            docker load -i dyverse-amd64.tar.gz   # x86_64 机型
+            # 或
+            docker load -i dyverse-arm64.tar.gz   # ARM 机型
+
+            docker run -d --name dyverse --restart unless-stopped -p 8787:8787 dyverse:latest
+            ```
+          files: |
+            /tmp/dyverse-amd64.tar.gz
+            /tmp/dyverse-arm64.tar.gz
+          overwrite: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
