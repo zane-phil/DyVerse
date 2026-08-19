@@ -1,10 +1,10 @@
 /** 内容平台 */
-export type MediaPlatform = 'douyin' | 'xiaohongshu'
+export type MediaPlatform = 'douyin' | 'xiaohongshu' | 'qishui'
 
 /** 作品信息 */
 export interface MediaItem {
   platform: MediaPlatform
-  type: 'video' | 'image'
+  type: 'video' | 'image' | 'music'
   id: string
   title: string
   author: {

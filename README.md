@@ -1,7 +1,7 @@
 # DyVerse · 抖音视频 / 图文下载器
 
 > 一个拥有高级质感界面的抖音内容下载 Web 项目：**Vue 3 + TypeScript + TDesign UI + Less + Node.js 代理服务**。
-> 支持抖音 / 小红书分享口令、短链接、视频页与图文笔记的一键解析，无水印视频下载与图片批量保存。
+> 支持抖音 / 小红书 / 汽水音乐分享口令、短链接、视频页与图文笔记的一键解析，无水印视频下载、图片批量保存与音乐封面下载。
 
 ![Vue](https://img.shields.io/badge/Vue-3.5-42b883) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6) ![TDesign](https://img.shields.io/badge/TDesign-1.x-0052d9) ![Less](https://img.shields.io/badge/Less-4.x-1d365d) ![Express](https://img.shields.io/badge/Express-5.x-000000) ![Node](https://img.shields.io/badge/Node-20%2B-339933) ![License](https://img.shields.io/badge/License-Private-8b5cf6)
 
@@ -43,7 +43,8 @@ DyVerse 是一个「打开即用」的本地抖音下载工具：
 | --- | --- | --- |
 | 🎬 视频下载 | 无水印原画 | `playwm` → `play` 地址转换，分辨率优先 1080P+（取决于源站提供） |
 | 🖼️ 图文笔记 | 单张下载 / 一键全部 | 图片以原始清晰度链接逐个保存，悬停可单张下载 |
-| 🔗 链接兼容 | 抖音 / 小红书 | 抖音 `v.douyin.com`、`douyin.com/video|note`、`iesdouyin.com/share/...`；小红书 `xhslink.com` 短链、`xiaohongshu.com/explore|discovery/item/...` |
+| 🎵 汽水音乐 | 音乐封面下载 | 解析 `qishui.douyin.com` 短链，展示歌曲 / 歌手 / 专辑信息，一键下载 1080px 高清封面 |
+| 🔗 链接兼容 | 抖音 / 小红书 / 汽水音乐 | 抖音 `v.douyin.com`、`douyin.com/video|note`、`iesdouyin.com/share/...`；小红书 `xhslink.com|cn` 短链、`xiaohongshu.com/explore|discovery/item/...`；汽水音乐 `qishui.douyin.com/s/...` |
 | ▶️ 在线预览 | 视频 / 图片预览 | 通过本地代理内联播放与展示，不受防盗链影响 |
 | 📊 作品信息 | 关键信息 | 标题、作者、封面与预览，克制呈现 |
 | 🛡️ 隐私安全 | 全程本地 | 解析与媒体中转均在本机完成，不经过任何第三方服务器 |
@@ -271,7 +272,16 @@ emit('parsed', result)
 
 > 小红书笔记页对未登录访问有一定风控，作品被删除、仅自己可见或请求过于频繁时会解析失败；短链过期（还原后落在首页）会提示重新复制最新分享链接。
 
-### 7.6 错误处理
+### 7.6 汽水音乐解析
+
+`/api/parse` 自动识别汽水音乐链接（`qishui.douyin.com/s/...` 短链）：
+
+1. **还原短链**：PC UA 跟随重定向到 `music.douyin.com/qishui/share/track?track_id=...`，提取 `track_id`；
+2. **抓取 SSR**：分享页内联 `_ROUTER_DATA` 脚本（括号配对截取），数据位于 `loaderData.track_page.audioWithLyricsOption`——含 `trackName`（歌名）、`trackInfo.album`（专辑名 / 封面 uri / 发行时间）、`trackInfo.artists`（歌手）；
+3. **封面直链**：由 CDN 前缀 + 图片 uri 构造 `~c5_1080x1080.jpg` 高清封面（douyinpic 无签名直链，可经下载代理中转）；`_ROUTER_DATA` 缺失时回退 JSON-LD（`application/ld+json`，含标题与 375px 封面）；
+4. **字段映射**：`type` 为 `music`，`cover` / `images[0]` 为封面直链，`author.nickname` 为歌手名，`createTime` 为专辑发行时间。
+
+### 7.7 错误处理
 
 - `express.json` 解析失败 → `400 { message }`
 - 未识别链接 / 无作品 ID → `400 { message }`
@@ -330,7 +340,7 @@ curl -X POST http://localhost:8787/api/parse \
 }
 ```
 
-> `platform` 标识来源（`douyin` / `xiaohongshu`）；图文作品：`type` 为 `image`，`images` 为图片 URL 数组，`videoUrl` / `videoUrlWatermark` 为空字符串；实况图作品统一按静态图片输出。
+> `platform` 标识来源（`douyin` / `xiaohongshu` / `qishui`）；图文作品：`type` 为 `image`，`images` 为图片 URL 数组，`videoUrl` / `videoUrlWatermark` 为空字符串；实况图作品统一按静态图片输出；汽水音乐作品：`type` 为 `music`，`cover` / `images[0]` 为封面直链。
 
 **异常响应**
 
@@ -409,9 +419,13 @@ Content-Length: 15504346
 - 若必须部署，建议使用家庭宽带 IP 并控制请求频率。
 
 ### 10.7 小红书解析失败 / 提示链接已失效
-- 小红书分享短链（`xhslink.com`）会过期：过期后还原会落在首页，此时请在小红书 App 重新复制最新分享链接；
+- 小红书分享短链（`xhslink.com` / `xhslink.cn`）会过期：过期后还原会落在首页，此时请在小红书 App 重新复制最新分享链接；
 - 直链（`xiaohongshu.com/explore/{id}`）不带 `xsec_token` 时会被安全页拦截，请使用带 token 的分享链接（App 分享出去的链接自带）；
 - 作品被删除、仅自己可见或请求过于频繁时同样会失败，可稍后重试。
+
+### 10.8 汽水音乐解析失败
+- `qishui.douyin.com` 短链会过期，过期后请重新复制最新分享链接；
+- 歌曲下架或地区限制时无法获取，属平台版权策略，非工具问题。
 
 ---
 

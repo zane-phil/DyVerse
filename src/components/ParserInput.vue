@@ -15,7 +15,9 @@ const error = ref('')
 const isFocused = ref(false)
 
 function isSupportedText(text: string) {
-  return /douyin\.com|iesdouyin\.com|v\.douyin\.com|douyin|xiaohongshu\.com|xhslink\.(?:com|cn)/i.test(text)
+  return /douyin\.com|iesdouyin\.com|v\.douyin\.com|douyin|xiaohongshu\.com|xhslink\.(?:com|cn)|qishui\.douyin\.com|music\.douyin\.com\/qishui/i.test(
+    text,
+  )
 }
 
 async function handlePaste() {
@@ -40,7 +42,7 @@ async function handleParse() {
     return
   }
   if (!isSupportedText(raw)) {
-    error.value = '未识别到抖音 / 小红书链接，请检查后重试'
+    error.value = '未识别到抖音 / 小红书 / 汽水音乐链接，请检查后重试'
     return
   }
   loading.value = true
@@ -67,7 +69,7 @@ async function handleParse() {
       <!-- 输入区标题行 -->
       <div class="row-head">
         <span class="label">分享链接 / 口令</span>
-        <span class="support">抖音 · 小红书 · 口令 · 短链 · 视频 · 图文</span>
+        <span class="support">抖音 · 小红书 · 汽水音乐 · 短链 · 视频 · 图文</span>
       </div>
 
       <!-- 输入区 -->
@@ -75,7 +77,7 @@ async function handleParse() {
         <t-textarea
           v-model="input"
           class="input"
-          placeholder="将抖音 / 小红书分享口令或链接粘贴到这里，例如：http://xhslink.com/xxxx 或 https://v.douyin.com/xxxx/"
+          placeholder="将抖音 / 小红书 / 汽水音乐分享口令或链接粘贴到这里，例如：https://qishui.douyin.com/s/xxxx/ 或 https://v.douyin.com/xxxx/"
           :autosize="{ minRows: 2, maxRows: 4 }"
           :disabled="loading"
           @focus="isFocused = true"

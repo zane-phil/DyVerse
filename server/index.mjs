@@ -104,6 +104,8 @@ async function fetchPage(url, { ua = UA_PC, referer = 'https://www.douyin.com/' 
 const DOUYIN_RE = /https?:\/\/(?:v\.douyin\.com|www\.douyin\.com|www\.iesdouyin\.com|iesdouyin\.com)[^\s"'<>，。；;）)]*/gi
 // 小红书短链域名：xhslink.com（旧）/ xhslink.cn（新）/ xiaohongshu.com 页面
 const XHS_RE = /https?:\/\/(?:www\.)?(?:xhslink\.(?:com|cn)|xiaohongshu\.com)[^\s"'<>，。；;）)]*/gi
+// 汽水音乐：qishui.douyin.com 短链（还原后为 music.douyin.com/qishui/share/track）
+const QISHUI_RE = /https?:\/\/(?:qishui\.douyin\.com|music\.douyin\.com\/qishui)[^\s"'<>，。；;）)]*/gi
 
 function extractDouyinUrl(text) {
   const m = String(text || '').match(DOUYIN_RE)
@@ -112,6 +114,11 @@ function extractDouyinUrl(text) {
 
 function extractXhsUrl(text) {
   const m = String(text || '').match(XHS_RE)
+  return m ? m[0].trim() : ''
+}
+
+function extractQishuiUrl(text) {
+  const m = String(text || '').match(QISHUI_RE)
   return m ? m[0].trim() : ''
 }
 
@@ -634,14 +641,200 @@ async function parseXhs(sourceUrl) {
   return { item: null, resolvedUrl, idFound: true }
 }
 
+/* ---------------- qishui（汽水音乐） ---------------- */
+
+function extractQishuiTrackId(url) {
+  const m = String(url).match(/track_id=(\d{10,})/)
+  return m ? m[1] : ''
+}
+
+/** 括号配对截取 script 中的 JSON 对象（SSR 数据常在 JSON 后拼接其他 JS） */
+function extractBalancedJson(str, startIdx) {
+  let depth = 0
+  let inStr = false
+  let esc = false
+  for (let i = startIdx; i < str.length; i++) {
+    const c = str[i]
+    if (inStr) {
+      if (esc) esc = false
+      else if (c === '\\') esc = true
+      else if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') inStr = true
+    else if (c === '{') depth++
+    else if (c === '}') {
+      depth--
+      if (depth === 0) return str.slice(startIdx, i + 1)
+    }
+  }
+  return null
+}
+
+function normalizeLunaUrl(u) {
+  if (!u) return ''
+  return String(u).replace(/\\u002F/gi, '/').replace(/^http:\/\//i, 'https://').trim()
+}
+
+/** 由 url_cover（uri + CDN 前缀 + 模板）构造高清封面直链 */
+function buildQishuiCover(urlCover) {
+  if (!urlCover || !urlCover.uri) return ''
+  const prefix = Array.isArray(urlCover.urls) ? urlCover.urls[0] : ''
+  if (!prefix) return ''
+  // c5_1080x1080 为 1080px 高清模板；优先尝试，失败时页面内另有 375px 兜底
+  return normalizeLunaUrl(`${prefix}${urlCover.uri}~c5_1080x1080.jpg`)
+}
+
+function mapQishuiTrack(option, trackId, fallback = {}) {
+  const info = (option && option.trackInfo) || {}
+  const album = info.album || {}
+  const artists = Array.isArray(info.artists) ? info.artists : []
+  const artistName = artists.map((a) => a && a.name).filter(Boolean).join(' / ') || '未知歌手'
+  const cover = buildQishuiCover(album.url_cover) || fallback.cover || ''
+  const durationMs = Number(info.duration) || 0
+
+  return {
+    platform: 'qishui',
+    type: 'music',
+    id: String(trackId || info.id || ''),
+    title: decodeHtml((option && option.trackName) || fallback.title || ''),
+    author: {
+      nickname: artistName,
+      avatar: normalizeLunaUrl((artists[0] && artists[0].url_avatar && buildQishuiCover(artists[0].url_avatar)) || ''),
+      uniqueId: String((artists[0] && artists[0].id) || ''),
+      signature: '',
+    },
+    cover,
+    videoUrl: '',
+    videoUrlWatermark: '',
+    images: cover ? [cover] : [],
+    duration: durationMs ? Math.round(durationMs / 1000) : 0,
+    createTime: Number(album.release_date) || 0,
+    statistics: { digg: 0, comment: 0, share: 0, collect: 0 },
+    music: `${decodeHtml((option && option.trackName) || fallback.title || '')} - ${artistName}`,
+    width: 1080,
+    height: 1080,
+  }
+}
+
+/** 解析汽水音乐：还原短链 -> 提取 track_id -> 抓分享页 SSR（_ROUTER_DATA / JSON-LD 兜底） */
+async function parseQishui(sourceUrl) {
+  let resolvedUrl = sourceUrl
+  try {
+    if (/qishui\.douyin\.com/i.test(sourceUrl)) {
+      const res = await fetch(sourceUrl, {
+        redirect: 'follow',
+        headers: {
+          'User-Agent': UA_PC,
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+      })
+      mergeCookies(res)
+      resolvedUrl = res.url || sourceUrl
+    }
+  } catch {
+    /* keep source */
+  }
+  const trackId = extractQishuiTrackId(resolvedUrl) || extractQishuiTrackId(sourceUrl)
+  if (!trackId) return { item: null, resolvedUrl, idFound: false }
+
+  try {
+    const res = await fetch(resolvedUrl, {
+      redirect: 'follow',
+      headers: {
+        'User-Agent': UA_PC,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.5',
+        Referer: 'https://music.douyin.com/',
+      },
+    })
+    if (!res.ok) return { item: null, resolvedUrl, idFound: true }
+    const html = await res.text()
+    if (!html || html.length < 2000) return { item: null, resolvedUrl, idFound: true }
+
+    // 1) _ROUTER_DATA SSR 数据（含 trackName / trackInfo / 封面）
+    const marker = '_ROUTER_DATA = '
+    const idx = html.indexOf(marker)
+    if (idx >= 0) {
+      const raw = extractBalancedJson(html, idx + marker.length)
+      if (raw) {
+        try {
+          const data = JSON.parse(raw)
+          const option =
+            data.loaderData &&
+            data.loaderData.track_page &&
+            data.loaderData.track_page.audioWithLyricsOption
+          if (option && (option.trackName || (option.trackInfo && option.trackInfo.album))) {
+            const item = mapQishuiTrack(option, trackId)
+            if (item.cover) return { item, resolvedUrl, idFound: true }
+          }
+        } catch {
+          /* 尝试 JSON-LD 兜底 */
+        }
+      }
+    }
+
+    // 2) JSON-LD 兜底（title + 375px 封面）
+    const ld = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/)
+    if (ld) {
+      try {
+        const j = JSON.parse(ld[1])
+        const images = Array.isArray(j.images) ? j.images.map(normalizeLunaUrl).filter(Boolean) : []
+        if (j.title || images.length) {
+          const item = {
+            platform: 'qishui',
+            type: 'music',
+            id: String(trackId),
+            title: decodeHtml(j.title || ''),
+            author: { nickname: '未知歌手', avatar: '', uniqueId: '', signature: '' },
+            cover: images[0] || '',
+            videoUrl: '',
+            videoUrlWatermark: '',
+            images,
+            duration: 0,
+            createTime: 0,
+            statistics: { digg: 0, comment: 0, share: 0, collect: 0 },
+            music: decodeHtml(j.title || ''),
+            width: 375,
+            height: 375,
+          }
+          return { item, resolvedUrl, idFound: true }
+        }
+      } catch {
+        /* noop */
+      }
+    }
+  } catch {
+    /* fallthrough */
+  }
+  return { item: null, resolvedUrl, idFound: true }
+}
+
 /* ---------------- routes ---------------- */
 app.post('/api/parse', async (req, res) => {
   try {
     const text = String((req.body && req.body.url) || '')
     const source = extractDouyinUrl(text)
     const xhsSource = extractXhsUrl(text)
-    if (!source && !xhsSource) {
-      return res.status(400).json({ message: '未识别到抖音 / 小红书链接，请粘贴完整的分享链接或口令' })
+    const qishuiSource = extractQishuiUrl(text)
+    if (!source && !xhsSource && !qishuiSource) {
+      return res.status(400).json({ message: '未识别到抖音 / 小红书 / 汽水音乐链接，请粘贴完整的分享链接或口令' })
+    }
+
+    // 汽水音乐分支
+    if (qishuiSource && !source && !xhsSource) {
+      const { item, resolvedUrl, idFound } = await parseQishui(qishuiSource)
+      if (!item) {
+        return res.json({
+          sourceUrl: qishuiSource,
+          resolvedUrl,
+          item: null,
+          message: idFound
+            ? '汽水音乐歌曲获取失败：歌曲可能已下架，或触发了平台风控，请稍后重试'
+            : '分享链接已失效或过期，请重新复制最新的汽水音乐分享链接',
+        })
+      }
+      return res.json({ sourceUrl: qishuiSource, resolvedUrl, item })
     }
 
     // 小红书分支

@@ -44,8 +44,8 @@ const steps = [
       <!-- 工具标题 -->
       <div class="hero">
         <div class="eyebrow">SOCIAL MEDIA PARSER</div>
-        <h1>抖音 / 小红书解析下载</h1>
-        <p class="sub">粘贴分享口令或链接，无水印视频与高清图片一键保存。</p>
+        <h1>抖音 / 小红书 / 汽水音乐解析下载</h1>
+        <p class="sub">粘贴分享口令或链接，无水印视频、高清图片与音乐封面一键保存。</p>
       </div>
 
       <!-- 流程步骤 -->

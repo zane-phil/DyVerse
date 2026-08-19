@@ -9,7 +9,12 @@ const props = defineProps<{ result: ParseResult }>()
 
 const item = computed(() => props.result.item)
 
-const isImage = computed(() => item.value?.type === 'image' || (item.value?.images?.length ?? 0) > 0)
+const isImage = computed(
+  () =>
+    item.value?.type === 'image' ||
+    (item.value?.type !== 'music' && (item.value?.images?.length ?? 0) > 0),
+)
+const isMusic = computed(() => item.value?.type === 'music')
 
 const filename = computed(() => {
   const it = item.value
@@ -20,10 +25,16 @@ const filename = computed(() => {
 const typeLabel = computed(() => {
   const it = item.value
   if (!it) return ''
+  if (isMusic.value) return '音乐'
   return isImage.value ? `图文 · ${it.images.length} 张` : '视频'
 })
 
-const platformLabel = computed(() => (item.value?.platform === 'xiaohongshu' ? '小红书' : '抖音'))
+const platformLabel = computed(() => {
+  const p = item.value?.platform
+  if (p === 'xiaohongshu') return '小红书'
+  if (p === 'qishui') return '汽水音乐'
+  return '抖音'
+})
 
 const proxyCover = computed(() => {
   const it = item.value
@@ -71,6 +82,18 @@ function downloadImage(url: string, index: number) {
   triggerDownload(url, `${filename.value}-${String(index + 1).padStart(2, '0')}`)
   MessagePlugin.success(`已开始下载第 ${index + 1} 张图片`)
 }
+
+/** 下载音乐封面 */
+function downloadCover() {
+  const it = item.value
+  const cover = it?.cover || it?.images?.[0]
+  if (!cover) {
+    MessagePlugin.warning('未获取到封面地址')
+    return
+  }
+  triggerDownload(cover, `${filename.value}-封面`)
+  MessagePlugin.success('已开始下载音乐封面')
+}
 </script>
 
 <template>
@@ -92,8 +115,26 @@ function downloadImage(url: string, index: number) {
     <article v-else class="card">
       <!-- 媒体预览 -->
       <div class="media">
+        <!-- 音乐封面 -->
+        <div v-if="isMusic" class="music-cover">
+          <t-image
+            v-if="item.cover || item.images?.[0]"
+            :src="mediaUrl(item.cover || item.images[0], { inline: true })"
+            fit="cover"
+            :style="{ aspectRatio: '1 / 1' }"
+            loading="lazy"
+          />
+          <div v-else class="video-fallback">
+            <span>封面不可用</span>
+          </div>
+          <span class="music-note">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12" /><circle cx="6.5" cy="18" r="2.5" /><circle cx="16.5" cy="16" r="2.5" /></svg>
+            单曲封面
+          </span>
+        </div>
+
         <!-- 视频 -->
-        <div v-if="!isImage" class="video">
+        <div v-else-if="!isImage" class="video">
           <video
             v-if="previewVideo"
             :src="previewVideo"
@@ -172,7 +213,19 @@ function downloadImage(url: string, index: number) {
 
         <div class="actions">
           <t-button
-            v-if="!isImage"
+            v-if="isMusic"
+            class="cta"
+            size="large"
+            theme="primary"
+            @click="downloadCover"
+          >
+            <template #icon>
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11" /><path d="m7 11 5 5 5-5" /><path d="M5 20h14" /></svg>
+            </template>
+            下载封面
+          </t-button>
+          <t-button
+            v-else-if="!isImage"
             class="cta"
             size="large"
             theme="primary"
@@ -255,6 +308,32 @@ function downloadImage(url: string, index: number) {
 
 .media {
   min-width: 0;
+}
+
+/* 音乐封面 */
+.music-cover {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--dy-border);
+  background: rgba(0, 0, 0, 0.3);
+  max-width: 340px;
+}
+.music-note {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 /* 视频预览 */
@@ -392,6 +471,10 @@ function downloadImage(url: string, index: number) {
   background: linear-gradient(135deg, #ffffff, #c9c9d2);
   &.platform-xiaohongshu {
     background: linear-gradient(135deg, #ff5b4d, #ff2e4d);
+  }
+  &.platform-qishui {
+    background: linear-gradient(135deg, #4d8dff, #7a5cff);
+    color: #fff;
   }
 }
 .meta-item {
