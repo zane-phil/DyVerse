@@ -82,6 +82,10 @@ async function handleParse() {
           @blur="isFocused = false"
           @keydown.enter.exact.prevent="handleParse"
         />
+      </div>
+
+      <!-- 操作行：左下角一键粘贴 ↔ 右下角立即解析 -->
+      <div class="row-foot">
         <t-button
           class="paste-btn"
           size="large"
@@ -92,11 +96,6 @@ async function handleParse() {
         >
           一键粘贴
         </t-button>
-      </div>
-
-      <!-- 操作行 -->
-      <div class="row-foot">
-        <span class="hint">按 <kbd>Enter</kbd> 快速解析</span>
         <t-button
           class="cta"
           size="large"
@@ -164,8 +163,6 @@ async function handleParse() {
 /* 输入区：醒目大输入框 */
 .drop-zone {
   display: flex;
-  align-items: stretch;
-  gap: 12px;
   padding: 10px 10px 10px 16px;
   border-radius: var(--dy-radius-lg);
   background: rgba(0, 0, 0, 0.45);
@@ -203,8 +200,15 @@ async function handleParse() {
     }
   }
 }
+
+.row-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
 .paste-btn {
-  align-self: center;
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.08) !important;
   border-color: rgba(255, 255, 255, 0.3) !important;
@@ -216,33 +220,6 @@ async function handleParse() {
   }
   :deep(.t-button__text) {
     font-size: 14.5px;
-  }
-}
-
-.row-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 14px;
-  .hint {
-    font-size: 12px;
-    color: var(--dy-text-muted);
-    kbd {
-      display: inline-grid;
-      place-items: center;
-      min-width: 22px;
-      height: 20px;
-      padding: 0 6px;
-      margin: 0 2px;
-      border-radius: 5px;
-      font-family: var(--dy-font-mono);
-      font-size: 11px;
-      color: var(--dy-text-secondary);
-      background: rgba(255, 255, 255, 0.07);
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      border-bottom-width: 2px;
-    }
   }
 }
 .cta {
@@ -274,23 +251,17 @@ async function handleParse() {
 }
 
 @media (max-width: 560px) {
-  .drop-zone {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .paste-btn {
-    width: 100%;
-  }
   .row-head {
     flex-direction: column;
     gap: 4px;
   }
   .row-foot {
-    flex-direction: column-reverse;
+    flex-direction: column;
     align-items: stretch;
-    .hint {
-      text-align: center;
-    }
+  }
+  .paste-btn,
+  .cta {
+    width: 100%;
   }
   .cta {
     max-width: none;
