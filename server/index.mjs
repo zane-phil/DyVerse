@@ -548,6 +548,16 @@ async function fetchXhsPage(url) {
   return res
 }
 
+/** 兜底：直接从页面 HTML 正则提取内嵌图片直链（与 iOS 快捷指令同款思路）。
+ *  小红书 SSR 会把每张图以 content="http://sns-webpic-qc.xhscdn.com/..." 形式嵌入页面，
+ *  即使 __INITIAL_STATE__ 结构变动导致解析失败，仍可抢救出全部图片。 */
+function xhsImagesFromHtml(html) {
+  const urls = [...String(html).matchAll(/content="(https?:\/\/sns-webpic[^"]+)"/g)].map((m) =>
+    normalizeXhsUrl(m[1]),
+  )
+  return [...new Set(urls)].filter(Boolean)
+}
+
 async function tryXhsPage(pageUrl) {
   try {
     const res = await fetchXhsPage(pageUrl)
@@ -555,14 +565,39 @@ async function tryXhsPage(pageUrl) {
     const html = await res.text()
     if (!html || html.length < 2000) return null
     const state = extractXhsInitialState(html)
-    if (!state) return null
-    const noteMap = state.note && state.note.noteDetailMap
-    if (!noteMap || typeof noteMap !== 'object') return null
-    for (const key of Object.keys(noteMap)) {
-      const note = noteMap[key] && noteMap[key].note
-      // 仅当笔记含实际媒体（图片或视频）时才视为有效，排除风控/删除占位页
-      if (note && (Array.isArray(note.imageList) || note.video)) {
-        return mapXhsNote(note)
+    if (state) {
+      const noteMap = state.note && state.note.noteDetailMap
+      if (noteMap && typeof noteMap === 'object') {
+        for (const key of Object.keys(noteMap)) {
+          const note = noteMap[key] && noteMap[key].note
+          // 仅当笔记含实际媒体（图片或视频）时才视为有效，排除风控/删除占位页
+          if (note && (Array.isArray(note.imageList) || note.video)) {
+            return mapXhsNote(note)
+          }
+        }
+      }
+    }
+    // SSR 不可用时回退：正则提取页面内嵌图片直链
+    const images = xhsImagesFromHtml(html)
+    if (images.length) {
+      const ogTitle =
+        html.match(/<meta[^>]+property="og:title"[^>]+content="([^"]*)"/i)?.[1] || ''
+      return {
+        platform: 'xiaohongshu',
+        type: 'image',
+        id: extractXhsNoteId(pageUrl) || '',
+        title: decodeHtml(ogTitle),
+        author: { nickname: '未知作者', avatar: '', uniqueId: '', signature: '' },
+        cover: images[0],
+        videoUrl: '',
+        videoUrlWatermark: '',
+        images,
+        duration: 0,
+        createTime: 0,
+        statistics: { digg: 0, comment: 0, share: 0, collect: 0 },
+        music: '',
+        width: 0,
+        height: 0,
       }
     }
   } catch {
