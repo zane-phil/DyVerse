@@ -1,7 +1,7 @@
 # DyVerse · 抖音视频 / 图文下载器
 
 > 一个拥有高级质感界面的抖音内容下载 Web 项目：**Vue 3 + TypeScript + TDesign UI + Less + Node.js 代理服务**。
-> 支持抖音分享口令 / 短链接 / 视频页 / 图文笔记 / 实况动图（Live Photo）的一键解析，无水印视频下载、图文批量保存与实况动图下载。
+> 支持抖音分享口令 / 短链接 / 视频页 / 图文笔记的一键解析，无水印视频下载与图文批量保存。
 
 ![Vue](https://img.shields.io/badge/Vue-3.5-42b883) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6) ![TDesign](https://img.shields.io/badge/TDesign-1.x-0052d9) ![Less](https://img.shields.io/badge/Less-4.x-1d365d) ![Express](https://img.shields.io/badge/Express-5.x-000000) ![Node](https://img.shields.io/badge/Node-20%2B-339933) ![License](https://img.shields.io/badge/License-Private-8b5cf6)
 
@@ -42,8 +42,7 @@ DyVerse 是一个「打开即用」的本地抖音下载工具：
 | 类别 | 能力 | 说明 |
 | --- | --- | --- |
 | 🎬 视频下载 | 无水印原画 | `playwm` → `play` 地址转换，分辨率优先 1080P+（取决于源站提供） |
-| 🖼️ 图文笔记 | 单张下载 / 一键全部 | 图片以原始清晰度链接逐个保存 |
-| 🎞️ 实况照片 | iOS 一键直存相册 | 图文中的实况图直接打包为「同名 JPG + MOV」配对；**iPhone 上点击「保存实况照片到相册」→ 系统面板点「存储图像」，无需 ZIP 即直接存入相册**（另可单独另存动图 MP4 / 下载 ZIP 备用） |
+| 🖼️ 图文笔记 | 单张下载 / 一键全部 | 图片以原始清晰度链接逐个保存，悬停可单张下载 |
 | 🔗 链接兼容 | 分享口令 / 短链 / 页面链接 | `v.douyin.com`、`douyin.com/video|note`、`iesdouyin.com/share/...` |
 | ▶️ 在线预览 | 视频 / 图片预览 | 通过本地代理内联播放与展示，不受防盗链影响 |
 | 📊 作品信息 | 关键信息 | 标题、作者、封面与预览，克制呈现 |
@@ -125,41 +124,6 @@ npm start       # 启动后端，同时托管 dist 静态资源与 API
 | `npm start` | 生产启动（托管 dist + API） |
 | `npm run preview` | 预览构建产物（仅前端） |
 
-### 4.6 iPhone 一键直存相册（HTTPS）
-
-「保存实况照片到相册」依赖 iOS Safari 的 Web Share 文件分享，而它**只在安全上下文（HTTPS / localhost）下可用**。iPhone 通过 `http://192.168.x.x` 访问时浏览器不提供该 API，页面会自动回退为 ZIP 下载——**这是预期行为，不是 bug**。
-
-本项目已内置「零配置 HTTPS」：只要 `server/certs/` 下存在 `lan.pem` + `lan-key.pem`（**本机已生成**，对应 `192.168.31.172`），前后端都会自动以 HTTPS 启动：
-
-```bash
-npm run dev:all    # 开发模式 → https://192.168.31.172:5173（Vite 自动读证书）
-npm start          # 生产模式 → https://192.168.31.172:8787（后端自动读证书）
-```
-
-**iPhone 首次访问**：Safari 打开地址 → 出现「此连接非私人连接」→ 点「显示详细信息 → 访问此网站」即可（自签名证书提示，属正常）。
-
-**IP 变了或换机器**（重新生成证书）：
-
-```bash
-mkdir -p server/certs && cd server/certs
-openssl req -x509 -newkey rsa:2048 -keyout lan-key.pem -out lan.pem -days 825 -nodes \
-  -subj "/CN=<你的局域网IP>" \
-  -addext "subjectAltName=IP:<你的局域网IP>,DNS:localhost,IP:127.0.0.1"
-```
-
-**想消除证书警告（可选，mkcert）**：
-
-```bash
-brew install mkcert && mkcert -install
-mkcert -cert-file server/certs/lan.pem -key-file server/certs/lan-key.pem 192.168.31.172 localhost 127.0.0.1
-```
-
-并把 mkcert 根证书（`mkcert -CAROOT` 目录下的 `rootCA.pem`，AirDrop 或网页下载均可）安装到 iPhone：设置 → 通用 → VPN 与设备管理 → 安装描述文件 → 关于本机 → 证书信任设置 → 开启完全信任。
-
-**macOS Safari 不支持分享文件**，因此 Mac 浏览器上不会出现「保存实况照片到相册」按钮（只会看到 ZIP 流程），这是预期行为——请直接用 iPhone 测试。
-
-> 提示：桌面端与 Android 均使用「下载 ZIP（备用）」流程，实况照片合并仅 iPhone / iPad 的「存储图像」动作支持。
-
 ---
 
 ## 5. 目录结构
@@ -173,8 +137,7 @@ download_douyin/
 │  ├─ App.vue                # 单页骨架：解析状态与布局
 │  ├─ tdesign.d.ts           # TDesign 全局组件类型声明
 │  ├─ api/
-│  │  ├─ douyin.ts           # 前端 API 客户端（解析 / 下载 / 批量下载）
-│  │  └─ livePhoto.ts        # iOS 实况照片打包（JPEG 转码 + 同名 JPG/MOV 配对 ZIP）
+│  │  └─ douyin.ts           # 前端 API 客户端（解析 / 下载 / 批量下载）
 │  ├─ components/
 │  │  ├─ ParserInput.vue     # 链接输入 / 一键粘贴 / 解析
 │  │  └─ ResultCard.vue      # 解析结果（预览 / 作者 / 下载）
@@ -212,11 +175,13 @@ download_douyin/
 
 **视觉层次**（从上到下）：
 
-1. **背景层**：两团柔和中性光晕，营造干净纵深；
-2. **顶栏**：固定毛玻璃，仅品牌 + 一句说明；
-3. **输入层**：标题、副标题与解析卡片（文本域 + 读取剪贴板 + 立即解析）；
-4. **结果层**：媒体预览 + 标题 / 作者 + 下载主操作，带入场动画；
-5. **页脚层**：一行免责声明。
+1. **背景层**：柔和中性光晕 + 细网格纹理，营造工具质感与纵深；
+2. **顶栏**：固定毛玻璃，品牌 + 本地运行状态；
+3. **标题层**：工具式标题（等宽字体 eyebrow + 渐变主标题）；
+4. **流程层**：三步指示（粘贴 → 解析 → 下载），状态驱动高亮；
+5. **输入层**：醒目大输入框（聚焦光环 + 快捷键提示 + 立即解析）；
+6. **结果层**：媒体预览（带信息徽标）+ 元数据 + 下载主操作，带入场动画；
+7. **页脚层**：一行免责声明。
 
 ### 6.2 页面数据流
 
@@ -258,7 +223,7 @@ emit('parsed', result)
    │
    ├─ 5. 抓详情数据  优先请求 web 详情接口（携带 ttwid）：
    │    ① https://www.douyin.com/aweme/v1/web/aweme/detail/
-   │       （完整数据，含实况动图 images[].video）
+   │       （完整数据，含图文 images[] 与视频流）
    │    ② 失败时回退分享页 SSR 数据：
    │       iesdouyin.com/share/video|note/{id}
    │       www.douyin.com/video|note/{id}
@@ -268,7 +233,6 @@ emit('parsed', result)
    ├─ 7. 字段映射   title / author / cover / statistics / music / duration / width / height
    │                video.play_addr.url_list → 无水印（playwm → play）
    │                images[].url_list        → 高清图片列表
-   │                images[].video.play_addr → 实况动图视频流
    │
    └─ 8. 兜底       若页面无法解析，读取 OG meta 提取标题/封面，并
                     以作品 ID 构造播放地址
@@ -276,7 +240,7 @@ emit('parsed', result)
 
 ### 7.2 为什么用 web 详情接口
 
-抖音主站 `www.douyin.com/aweme/v1/web/aweme/detail/` 返回最完整的作品数据，**实况动图（Live Photo）的视频流只存在于该接口**：分享页 SSR 数据中的 `images[]` 仅有静态图，而详情接口会在每张图片下附带 `images[].video.play_addr.url_list`（动图 mp4）与 `is_live_photo` 标记。
+抖音主站 `www.douyin.com/aweme/v1/web/aweme/detail/` 返回最完整的作品数据：分享页 SSR 数据中的 `images[]` 仅有静态图，而详情接口的 `images[]` 附带完整图片列表（含实况图作品的静态帧），图文作品的每张图片都能拿到最高清地址。
 
 匿名直接请求该接口会被抖音「反爬虫」策略拦截（返回空响应体）。服务端先调用 `ttwid.bytedance.com` 的 union/register 接口注册匿名设备指纹（`ttwid` Cookie），携带后即可稳定通过校验；ttwid 有有效期，接口返回空时自动刷新重试。无需实现 a_bogus 等复杂签名。
 
@@ -343,8 +307,6 @@ curl -X POST http://localhost:8787/api/parse \
     "videoUrl": "https://aweme.snssdk.com/aweme/v1/play/?video_id=...",
     "videoUrlWatermark": "https://aweme.snssdk.com/aweme/v1/playwm/?video_id=...",
     "images": [],
-    "livePhotoUrls": [],
-    "isLivePhoto": false,
     "duration": 96,
     "createTime": 1769072677,
     "statistics": { "digg": 1064, "comment": 58, "share": 56, "collect": 114 },
@@ -355,9 +317,7 @@ curl -X POST http://localhost:8787/api/parse \
 }
 ```
 
-> 图文作品：`type` 为 `image`，`images` 为图片 URL 数组，`videoUrl` / `videoUrlWatermark` 为空字符串。
-> 实况照片：`isLivePhoto` 为 `true`，`livePhotos` 为「静态图 + 动图视频」配对数组（与 `images` 一一对应），`livePhotoUrls` 为动图 mp4 直链数组（兼容字段）。
-> 前端主操作「保存实况照片到相册」：在 **iPhone Safari（HTTPS 环境）** 下会把每对静态图转码为 JPEG、动图视频以 `.MOV` 命名，通过系统分享面板一键唤起「存储图像」——**直接存入相册，无需 ZIP 与「文件」App**；非安全上下文自动回退为「同名 JPG + MOV 配对 ZIP」流程。
+> 图文作品：`type` 为 `image`，`images` 为图片 URL 数组，`videoUrl` / `videoUrlWatermark` 为空字符串；实况图作品统一按静态图片输出。
 
 **异常响应**
 
@@ -400,7 +360,6 @@ Content-Length: 15504346
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `PORT`（环境变量） | `8787` | 后端服务端口 |
-| `HTTPS_CERT` / `HTTPS_KEY`（环境变量） | 未设置 | 显式指定 PEM 证书路径；未设置时自动读取 `server/certs/lan.pem` + `lan-key.pem`（存在即 HTTPS 启动，见 4.6） |
 | Vite 开发端口 | `5173` | `vite.config.ts` 中 `server.port` |
 | `/api` 代理 | `http://localhost:8787` | `vite.config.ts` 中 `server.proxy` |
 
@@ -435,12 +394,6 @@ Content-Length: 15504346
 ### 10.6 部署到服务器后无法解析
 - 部分云服务器 IP 会被抖音风控拦截（验证页），本工具设计为**本机使用**；
 - 若必须部署，建议使用家庭宽带 IP 并控制请求频率。
-
-### 10.7 iPhone 上「保存实况照片到相册」按钮未出现 / 只下载了 ZIP / 分享面板没有「存储图像」
-- 一键直存依赖 iOS Safari 15+ 的 Web Share 文件分享，且页面必须是 **HTTPS 或 localhost**（安全上下文）；
-- iPhone 通过 `http://192.168.x.x` 访问时会回退为 ZIP，请改用 HTTPS 地址：开发模式 `https://192.168.31.172:5173`，生产模式 `https://192.168.31.172:8787`（证书已内置在 `server/certs/`，见 [4.6 节](#46-iphone-一键直存相册https)）；
-- 分享面板中没有「存储图像」是 iOS 16.2+ 部分版本的已知问题（[w3c/web-share#278](https://github.com/w3c/web-share/issues/278)，代码已按 [mdn/content#32019](https://github.com/mdn/content/issues/32019) 的结论改为只传 `{ files }` 调用 share，不带 title）；若仍缺失，改选「**存储到『文件』**」，再在文件 App 中同时选中这一对同名文件 → 分享 →「存储图像」，同样得到实况照片；
-- 分享面板中请选择「**存储图像**」（实况照片）或「存储视频」（动图），而不是「存储到文件」。
 
 ---
 

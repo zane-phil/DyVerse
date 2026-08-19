@@ -13,9 +13,6 @@ dist-ssr
 *.local
 .dyverse-port.json
 
-# 局域网 HTTPS 证书（含私钥，勿提交）
-server/certs/
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -7,7 +7,6 @@
 import express from 'express'
 import cors from 'cors'
 import http from 'node:http'
-import https from 'node:https'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -15,14 +14,6 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = Number(process.env.PORT || 8787)
-
-/* 可选 HTTPS：iPhone 一键直存相册（Web Share）要求安全上下文，需 HTTPS 访问。
-   优先级：环境变量 HTTPS_CERT / HTTPS_KEY（PEM 路径）> server/certs/lan.pem + lan-key.pem（自动生成，见 README 4.6）。 */
-const CERT_FILE = path.join(__dirname, 'certs/lan.pem')
-const KEY_FILE = path.join(__dirname, 'certs/lan-key.pem')
-const HTTPS_CERT = process.env.HTTPS_CERT || (fs.existsSync(CERT_FILE) ? CERT_FILE : '')
-const HTTPS_KEY = process.env.HTTPS_KEY || (fs.existsSync(KEY_FILE) ? KEY_FILE : '')
-const useHttps = !!(HTTPS_CERT && HTTPS_KEY)
 
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
@@ -298,20 +289,6 @@ function mapAweme(aweme) {
     .map((img) => normalizePlay(firstUrl(img.url_list) || firstUrl(img.download_url_list) || ''))
     .filter(Boolean)
 
-  // 实况图（Live Photo）：images[i].video.play_addr 是动图视频流
-  // 与 images 一一对应（保持索引对齐；无动图视频的图片 video 为空字符串）
-  const livePhotos = sourceImages.map((img) => {
-    const v = img && img.video
-    const list =
-      (v && (v.play_addr?.url_list || v.download_addr?.url_list || v.play_addr_h264?.url_list)) || []
-    return {
-      image: normalizePlay(firstUrl(img.url_list) || firstUrl(img.download_url_list) || ''),
-      video: normalizePlay(firstUrl(list)),
-    }
-  })
-  const livePhotoUrls = livePhotos.map((p) => p.video).filter(Boolean)
-  const isLivePhoto = !!aweme.is_live_photo || livePhotoUrls.length > 0
-
   const coverSource =
     firstUrl(video.cover?.url_list) ||
     firstUrl(video.origin_cover?.url_list) ||
@@ -332,9 +309,6 @@ function mapAweme(aweme) {
     videoUrl: isImage ? '' : noWm || fallbackPlay,
     videoUrlWatermark: isImage ? '' : wm || '',
     images: imageUrls,
-    livePhotos,
-    livePhotoUrls,
-    isLivePhoto,
     duration: video.duration ? Math.round(video.duration / 1000) : 0,
     createTime: aweme.create_time || 0,
     statistics: {
@@ -374,9 +348,6 @@ function metaFallback(html, id) {
       '/aweme/v1/playwm/',
     ),
     images: [],
-    livePhotos: [],
-    livePhotoUrls: [],
-    isLivePhoto: false,
     duration: 0,
     createTime: 0,
     statistics: { digg: 0, comment: 0, share: 0, collect: 0 },
@@ -474,7 +445,7 @@ app.post('/api/parse', async (req, res) => {
 
     // 2) 失败则回退到分享页内嵌数据
     try {
-      if (!item || (!item.videoUrl && !item.images.length && !item.livePhotoUrls.length)) {
+      if (!item || (!item.videoUrl && !item.images.length)) {
         const html = await fetchDetailHtml(id)
         if (html) {
           const blob = extractJsonBlob(html)
@@ -597,19 +568,7 @@ async function listenWithFallback(basePort, maxShift = 20) {
   for (let shift = 0; shift < maxShift; shift++) {
     const port = basePort + shift
     const server = await new Promise((resolve, reject) => {
-      let srv
-      try {
-        srv = useHttps
-          ? https.createServer(
-              { key: fs.readFileSync(HTTPS_KEY), cert: fs.readFileSync(HTTPS_CERT) },
-              app,
-            )
-          : http.createServer(app)
-      } catch (err) {
-        console.error('[DyVerse] HTTPS 证书读取失败，请检查 HTTPS_CERT / HTTPS_KEY 路径:', err.message)
-        reject(err)
-        return
-      }
+      const srv = http.createServer(app)
       srv.once('listening', () => resolve(srv))
       srv.once('error', (err) => {
         if (err && err.code === 'EADDRINUSE') resolve(null)
@@ -623,11 +582,10 @@ async function listenWithFallback(basePort, maxShift = 20) {
       } catch {
         /* 端口文件写入失败不影响服务 */
       }
-      const protocol = useHttps ? 'https' : 'http'
       console.log(
         shift === 0
-          ? `[DyVerse] server listening on ${protocol}://localhost:${port}`
-          : `[DyVerse] 端口 ${basePort} 被占用，已切换到 ${protocol}://localhost:${port}`,
+          ? `[DyVerse] server listening on http://localhost:${port}`
+          : `[DyVerse] 端口 ${basePort} 被占用，已切换到 http://localhost:${port}`,
       )
       return server
     }

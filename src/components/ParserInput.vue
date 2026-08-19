@@ -6,6 +6,7 @@ import type { ParseResult } from '../types'
 
 const emit = defineEmits<{
   (e: 'parsed', payload: ParseResult): void
+  (e: 'parsing'): void
 }>()
 
 const input = ref('')
@@ -44,6 +45,7 @@ async function handleParse() {
   }
   loading.value = true
   error.value = ''
+  emit('parsing')
   try {
     const result = await parseDouyin(raw)
     emit('parsed', result)
@@ -57,27 +59,24 @@ async function handleParse() {
     loading.value = false
   }
 }
-
 </script>
 
 <template>
   <section class="parser">
-    <h1 class="title">粘贴抖音链接，<span>一键下载</span></h1>
-    <p class="sub">无水印视频与高清图文，解析完成后直接保存。</p>
+    <div class="panel" :class="{ focused: isFocused, 'has-error': !!error }">
+      <!-- 输入区标题行 -->
+      <div class="row-head">
+        <span class="label">分享链接 / 口令</span>
+        <span class="support">口令 · 短链接 · 视频页 · 图文笔记</span>
+      </div>
 
-    <div class="panel" :class="{ focused: isFocused }">
+      <!-- 输入区 -->
       <div class="drop-zone">
-        <div class="paste-icon">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="9" width="11" height="11" rx="2.5" />
-            <path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5" />
-          </svg>
-        </div>
         <t-textarea
           v-model="input"
           class="input"
-          placeholder="在这里粘贴抖音分享链接或口令"
-          :autosize="{ minRows: 1, maxRows: 3 }"
+          placeholder="将抖音分享口令或链接粘贴到这里，例如：8.88 复制打开抖音… https://v.douyin.com/xxxx/"
+          :autosize="{ minRows: 2, maxRows: 4 }"
           :disabled="loading"
           @focus="isFocused = true"
           @blur="isFocused = false"
@@ -86,7 +85,6 @@ async function handleParse() {
         <t-button
           class="paste-btn"
           size="large"
-          shape="round"
           variant="outline"
           theme="primary"
           :disabled="loading"
@@ -96,15 +94,22 @@ async function handleParse() {
         </t-button>
       </div>
 
-      <div class="actions">
+      <!-- 操作行 -->
+      <div class="row-foot">
+        <span class="hint">按 <kbd>Enter</kbd> 快速解析</span>
         <t-button
           class="cta"
           size="large"
-          shape="round"
           theme="primary"
           :loading="loading"
           @click="handleParse"
         >
+          <template #icon>
+            <svg v-if="!loading" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 12h15" />
+              <path d="m13 6 6 6-6 6" />
+            </svg>
+          </template>
           {{ loading ? '解析中…' : '立即解析' }}
         </t-button>
       </div>
@@ -116,85 +121,81 @@ async function handleParse() {
 
 <style scoped lang="less">
 .parser {
-  padding: 16px 0 8px;
-}
-.title {
-  margin: 0;
-  font-size: clamp(30px, 6vw, 44px);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-  span {
-    background: linear-gradient(100deg, #ffffff 0%, #c9c9d2 60%, #a3a3ad 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-}
-.sub {
-  margin: 12px 0 0;
-  color: var(--dy-text-secondary);
-  font-size: 15px;
-  line-height: 1.7;
+  width: 100%;
 }
 
 .panel {
-  margin-top: 30px;
-  padding: 24px;
+  padding: 20px 20px 18px;
   border-radius: var(--dy-radius-xl);
-  background: var(--dy-surface);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025));
   border: 1px solid var(--dy-border);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   box-shadow: var(--dy-shadow-1);
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
   &.focused {
-    border-color: rgba(255, 255, 255, 0.28);
-    box-shadow: var(--dy-shadow-1), 0 0 0 4px rgba(255, 255, 255, 0.06), 0 0 60px rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.3);
+    box-shadow: var(--dy-shadow-1), 0 0 0 4px rgba(255, 255, 255, 0.06), 0 0 70px rgba(255, 255, 255, 0.09);
+  }
+  &.has-error {
+    border-color: rgba(215, 106, 106, 0.45);
   }
 }
 
-.drop-zone {
+.row-head {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 12px 12px 18px;
-  border-radius: var(--dy-radius-lg);
-  background: rgba(0, 0, 0, 0.35);
-  border: 1.5px dashed rgba(255, 255, 255, 0.3);
-  transition: border-color 0.3s ease, background 0.3s ease;
-  &:hover {
-    border-color: rgba(255, 255, 255, 0.55);
-    background: rgba(0, 0, 0, 0.42);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  .label {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--dy-text);
+    text-transform: uppercase;
+  }
+  .support {
+    font-size: 12px;
+    color: var(--dy-text-muted);
   }
 }
-.paste-icon {
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  flex-shrink: 0;
-  border-radius: 14px;
-  color: var(--dy-text);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-.actions {
-  margin-top: 14px;
+
+/* 输入区：醒目大输入框 */
+.drop-zone {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 10px 10px 10px 16px;
+  border-radius: var(--dy-radius-lg);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+  &:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+    background: rgba(0, 0, 0, 0.52);
+  }
+  &:focus-within {
+    border-color: rgba(255, 255, 255, 0.65);
+    background: rgba(0, 0, 0, 0.55);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.07), 0 0 34px rgba(255, 255, 255, 0.1);
+  }
 }
 .input {
   flex: 1;
+  align-self: center;
   :deep(.t-textarea__inner) {
     background: transparent;
     border: none;
     box-shadow: none;
     border-radius: 12px;
     color: var(--dy-text);
-    font-size: 16px;
-    font-weight: 500;
+    font-size: 16.5px;
+    font-weight: 600;
+    line-height: 1.6;
     padding: 10px 4px;
     &::placeholder {
-      color: var(--dy-text-muted);
+      color: rgba(255, 255, 255, 0.38);
       font-weight: 400;
     }
     &:focus {
@@ -203,21 +204,50 @@ async function handleParse() {
   }
 }
 .paste-btn {
+  align-self: center;
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.07) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
   border-color: rgba(255, 255, 255, 0.3) !important;
   color: var(--dy-text) !important;
   font-weight: 600;
   &:hover {
-    background: rgba(255, 255, 255, 0.14) !important;
+    background: rgba(255, 255, 255, 0.16) !important;
     border-color: rgba(255, 255, 255, 0.5) !important;
   }
   :deep(.t-button__text) {
     font-size: 14.5px;
   }
 }
+
+.row-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  .hint {
+    font-size: 12px;
+    color: var(--dy-text-muted);
+    kbd {
+      display: inline-grid;
+      place-items: center;
+      min-width: 22px;
+      height: 20px;
+      padding: 0 6px;
+      margin: 0 2px;
+      border-radius: 5px;
+      font-family: var(--dy-font-mono);
+      font-size: 11px;
+      color: var(--dy-text-secondary);
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-bottom-width: 2px;
+    }
+  }
+}
 .cta {
-  width: 100%;
+  flex: 1;
+  max-width: 260px;
   background: linear-gradient(135deg, #ffffff 0%, #dcdce2 55%, #b0b0ba 120%) !important;
   border: none !important;
   color: #0b0b0d !important;
@@ -229,14 +259,15 @@ async function handleParse() {
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
   }
   :deep(.t-button__text) {
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
   }
 }
+
 .error {
-  margin: 14px 0 0;
-  padding: 10px 14px;
+  margin: 12px 0 0;
+  padding: 9px 13px;
   border-radius: 10px;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--dy-error);
   background: rgba(215, 106, 106, 0.1);
   border: 1px solid rgba(215, 106, 106, 0.3);
@@ -246,13 +277,23 @@ async function handleParse() {
   .drop-zone {
     flex-direction: column;
     align-items: stretch;
-    text-align: center;
-  }
-  .paste-icon {
-    margin: 0 auto;
   }
   .paste-btn {
     width: 100%;
+  }
+  .row-head {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .row-foot {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    .hint {
+      text-align: center;
+    }
+  }
+  .cta {
+    max-width: none;
   }
 }
 </style>

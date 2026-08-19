@@ -7,20 +7,6 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT_FILE = path.join(__dirname, '.dyverse-port.json')
 
-/**
- * 局域网 HTTPS（iPhone 一键直存相册需要安全上下文）：
- * 若 server/certs/lan.pem 与 lan-key.pem 存在（生成方式见 README 4.6），
- * 开发服务器自动以 https://<局域网IP>:5173 启动；不存在时维持纯 http。
- */
-function httpsOptions() {
-  const cert = path.join(__dirname, 'server/certs/lan.pem')
-  const key = path.join(__dirname, 'server/certs/lan-key.pem')
-  if (fs.existsSync(cert) && fs.existsSync(key)) {
-    return { cert: fs.readFileSync(cert), key: fs.readFileSync(key) }
-  }
-  return undefined
-}
-
 /** 读取后端实际端口（后端启动时写入），未就绪时回退到默认端口 */
 function backendTarget() {
   try {
@@ -38,7 +24,6 @@ export default defineConfig({
     port: 5173,
     strictPort: false, // 端口被占用时自动 +1
     host: true,
-    https: httpsOptions(), // server/certs 存在证书时以 HTTPS 启动（iPhone 直存相册需要）
     proxy: {
       '/api': {
         target: backendTarget(),

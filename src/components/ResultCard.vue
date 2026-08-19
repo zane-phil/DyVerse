@@ -1,21 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { mediaUrl, triggerDownload, downloadMany } from '../api/douyin'
-import {
-  buildLivePhotoZip,
-  downloadBytes,
-  canShareFiles,
-  isIosDevice,
-  prepareLivePhotoFiles,
-  prepareVideoFile,
-} from '../api/livePhoto'
-import { safeFilename } from '../utils/format'
+import { safeFilename, timeAgo, formatDuration, formatCount } from '../utils/format'
 import type { ParseResult } from '../types'
 
 const props = defineProps<{ result: ParseResult }>()
 
 const item = computed(() => props.result.item)
+
+const isImage = computed(() => item.value?.type === 'image' || (item.value?.images?.length ?? 0) > 0)
 
 const filename = computed(() => {
   const it = item.value
@@ -23,19 +17,11 @@ const filename = computed(() => {
   return `${safeFilename(it.title || it.id)}-${it.id}`
 })
 
-const isImage = computed(() => item.value?.type === 'image' || (item.value?.images?.length ?? 0) > 0)
-const isLivePhoto = computed(() => (item.value?.livePhotoUrls?.length ?? 0) > 0 || !!item.value?.isLivePhoto)
-
-/** 一键直存相册：仅 iPhone / iPad 上的 Safari 支持（分享面板「存储图像」），其余设备一律回退 ZIP */
-const isIos = computed(() => isIosDevice())
-const canShare = computed(() => isIos.value && canShareFiles())
-const isSecure = typeof window !== 'undefined' && window.isSecureContext
-
-const zipBusy = ref(false)
-const zipProgress = ref('')
-
-const shareBusy = ref(false)
-const shareProgress = ref('')
+const typeLabel = computed(() => {
+  const it = item.value
+  if (!it) return ''
+  return isImage.value ? `图文 · ${it.images.length} 张` : '视频'
+})
 
 const proxyCover = computed(() => {
   const it = item.value
@@ -47,9 +33,16 @@ const previewVideo = computed(() => {
   return it?.videoUrl ? mediaUrl(it.videoUrl, { inline: true }) : ''
 })
 
-const previewLive = computed(() => {
+const durationText = computed(() => formatDuration(item.value?.duration || 0))
+const resolutionText = computed(() => {
   const it = item.value
-  return it?.livePhotoUrls?.[0] ? mediaUrl(it.livePhotoUrls[0], { inline: true }) : ''
+  return it?.width && it?.height ? `${it.width}×${it.height}` : ''
+})
+const dateText = computed(() => timeAgo(item.value?.createTime || 0))
+const stats = computed(() => item.value?.statistics || { digg: 0, comment: 0, share: 0, collect: 0 })
+const hasStats = computed(() => {
+  const s = stats.value
+  return s.digg > 0 || s.comment > 0 || s.share > 0
 })
 
 function downloadVideo() {
@@ -64,130 +57,41 @@ function downloadVideo() {
 
 function downloadAllImages() {
   const it = item.value
-  if (!it?.images?.length) return
+  if (!it?.images?.length) {
+    MessagePlugin.warning('未获取到图片地址')
+    return
+  }
   downloadMany(it.images, filename.value)
   MessagePlugin.success(`正在依次下载 ${it.images.length} 张图片`)
 }
 
-/** 主操作：直接存入 iPhone 相册（分享面板 →「存储图像」，iOS 自动合并为实况照片） */
-async function saveLivePhotosToPhotos() {
-  const it = item.value
-  if (!it) return
-  shareBusy.value = true
-  shareProgress.value = '准备中…'
-  try {
-    const { files } = await prepareLivePhotoFiles(it, (msg) => (shareProgress.value = msg))
-    // 注意：iOS 上 share() 只能传 { files } 一个属性！带 title/text/url 会导致
-    // 分享面板不出现「存储图像」动作（见 w3c/web-share#278、mdn/content#32019）
-    await navigator.share({ files })
-    MessagePlugin.success('已打开分享面板，点击「存储图像」即直接存入相册')
-  } catch (e) {
-    const name = (e as DOMException)?.name
-    if (name === 'AbortError') return // 用户主动取消，静默
-    if (name === 'NotAllowedError') {
-      // 准备耗时较长导致手势激活失效：文件已缓存，再点一次即可唤起
-      MessagePlugin.info('照片已准备就绪，请再次点击按钮打开分享面板')
-    } else {
-      MessagePlugin.error(e instanceof Error ? e.message : '保存失败，请重试')
-    }
-  } finally {
-    shareBusy.value = false
-    shareProgress.value = ''
-  }
-}
-
-/** 另存为动图：iPhone 上通过分享面板「存储视频」直存相册，其余环境回退为逐个下载 */
-async function saveLivePhotoVideo() {
-  const it = item.value
-  const urls = it?.livePhotoUrls
-  if (!urls?.length) {
-    MessagePlugin.warning('未获取到实况动图地址')
-    return
-  }
-  if (canShare.value && urls.length === 1) {
-    shareBusy.value = true
-    shareProgress.value = '准备动图…'
-    try {
-      const file = await prepareVideoFile(urls[0], `${filename.value}-动图`)
-      await navigator.share({ files: [file] })
-      MessagePlugin.success('已打开分享面板，点击「存储视频」即直接存入相册')
-    } catch (e) {
-      const name = (e as DOMException)?.name
-      if (name === 'AbortError') return
-      if (name === 'NotAllowedError') {
-        MessagePlugin.info('动图已准备就绪，请再次点击按钮打开分享面板')
-      } else {
-        MessagePlugin.error(e instanceof Error ? e.message : '保存失败，请重试')
-      }
-    } finally {
-      shareBusy.value = false
-      shareProgress.value = ''
-    }
-    return
-  }
-  downloadMany(urls, filename.value)
-  MessagePlugin.success(urls.length > 1 ? `正在依次下载 ${urls.length} 个实况动图` : '已开始下载实况动图')
-}
-
-/** 打包 iOS 可识别的实况照片（同名 JPG + MOV 配对 ZIP） */
-async function downloadIosLivePhotos() {
-  const it = item.value
-  if (!it) return
-  zipBusy.value = true
-  zipProgress.value = '准备中…'
-  try {
-    const { data, pairs } = await buildLivePhotoZip(it, (msg) => (zipProgress.value = msg))
-    downloadBytes(data, `${filename.value}-实况照片.zip`)
-    MessagePlugin.success(`已生成 ${pairs} 张实况照片 ZIP，传到 iPhone 保存即可识别`)
-  } catch (e) {
-    MessagePlugin.error(e instanceof Error ? e.message : '生成实况照片失败，请重试')
-  } finally {
-    zipBusy.value = false
-    zipProgress.value = ''
-  }
+function downloadImage(url: string, index: number) {
+  triggerDownload(url, `${filename.value}-${String(index + 1).padStart(2, '0')}`)
+  MessagePlugin.success(`已开始下载第 ${index + 1} 张图片`)
 }
 </script>
 
 <template>
   <section class="result">
-    <!-- 解析失败 -->
+    <!-- 解析失败 / 无内容 -->
     <div v-if="!item" class="empty">
-      <p>{{ result.message || '该链接可能已失效，或内容类型暂不支持' }}</p>
-      <code>{{ result.resolvedUrl || result.sourceUrl }}</code>
+      <div class="empty-icon">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 8v4.5" />
+          <circle cx="12" cy="16" r="0.5" fill="currentColor" />
+        </svg>
+      </div>
+      <p class="empty-msg">{{ result.message || '该链接可能已失效，或内容类型暂不支持' }}</p>
+      <code class="empty-url">{{ result.resolvedUrl || result.sourceUrl }}</code>
     </div>
 
     <!-- 解析成功 -->
     <article v-else class="card">
       <!-- 媒体预览 -->
       <div class="media">
-        <div v-if="isLivePhoto" class="live">
-          <video
-            v-if="previewLive"
-            :src="previewLive"
-            :poster="proxyCover"
-            autoplay
-            muted
-            loop
-            playsinline
-            preload="metadata"
-          ></video>
-          <t-image v-else :src="proxyCover" fit="cover" :style="{ aspectRatio: '3 / 4' }" />
-          <span class="live-badge" title="实况照片">
-            <svg viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true">
-              <path d="M522.688 512.064A10.688 10.688 0 0 0 512 501.376a10.688 10.688 0 0 0-10.688 10.688 10.624 10.624 0 0 0 21.312 0z m64 0a74.624 74.624 0 1 1-149.248 0 74.624 74.624 0 0 1 149.248 0z" />
-              <path d="M686.912 511.936A174.976 174.976 0 1 0 336.96 512 174.976 174.976 0 0 0 686.912 512z m76.8 0a251.712 251.712 0 1 1-503.424-0.064 251.712 251.712 0 0 1 503.424 0zM640 858.432v-0.448a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM774.016 751.808v-0.448a38.4 38.4 0 1 1 76.736 0v0.448a38.4 38.4 0 1 1-76.8 0zM847.808 597.76v-0.384a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM847.808 427.072v-0.448a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM774.016 273.088V272.64a38.4 38.4 0 1 1 76.736 0v0.448a38.4 38.4 0 1 1-76.8 0zM640 166.4v-0.384a38.4 38.4 0 1 1 76.8 0V166.4a38.4 38.4 0 1 1-76.8 0zM473.6 128.448V128a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM307.2 166.4v-0.384a38.4 38.4 0 1 1 76.8 0V166.4a38.4 38.4 0 1 1-76.8 0zM173.248 273.088V272.64a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM99.456 427.072v-0.448a38.4 38.4 0 1 1 76.736 0v0.448a38.4 38.4 0 1 1-76.8 0zM99.456 597.76v-0.384a38.4 38.4 0 1 1 76.736 0v0.448a38.4 38.4 0 1 1-76.8 0zM173.248 751.808v-0.448a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM307.2 858.432v-0.448a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0zM473.6 896.448V896a38.4 38.4 0 1 1 76.8 0v0.448a38.4 38.4 0 1 1-76.8 0z" />
-            </svg>
-          </span>
-        </div>
-
-        <div v-else-if="isImage" class="image-grid" :class="{ single: item.images.length === 1 }">
-          <div v-for="(img, i) in item.images" :key="i" class="image-cell">
-            <t-image :src="mediaUrl(img, { inline: true })" fit="cover" :style="{ aspectRatio: '3 / 4' }" loading="lazy" />
-            <span v-if="item.images.length > 1" class="index">{{ i + 1 }}</span>
-          </div>
-        </div>
-
-        <div v-else class="video">
+        <!-- 视频 -->
+        <div v-if="!isImage" class="video">
           <video
             v-if="previewVideo"
             :src="previewVideo"
@@ -200,82 +104,95 @@ async function downloadIosLivePhotos() {
             <t-image :src="proxyCover" fit="cover" />
             <span>视频预览不可用，可直接下载</span>
           </div>
+          <div class="video-chips">
+            <span class="chip chip-no-wm">无水印</span>
+            <span v-if="durationText" class="chip">{{ durationText }}</span>
+            <span v-if="resolutionText" class="chip">{{ resolutionText }}</span>
+          </div>
+        </div>
+
+        <!-- 图文 -->
+        <div v-else class="image-grid" :class="{ single: item.images.length === 1 }">
+          <div v-for="(img, i) in item.images" :key="i" class="image-cell">
+            <t-image :src="mediaUrl(img, { inline: true })" fit="cover" :style="{ aspectRatio: '3 / 4' }" loading="lazy" />
+            <span v-if="item.images.length > 1" class="index">{{ i + 1 }}</span>
+            <button class="cell-download" title="下载此图片" @click="downloadImage(img, i)">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 4v11" />
+                <path d="m7 11 5 5 5-5" />
+                <path d="M5 20h14" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
       <!-- 信息与操作 -->
       <div class="info">
+        <div class="meta-row">
+          <span class="type-badge">{{ typeLabel }}</span>
+          <span v-if="durationText" class="meta-item">{{ durationText }}</span>
+          <span v-if="resolutionText" class="meta-item">{{ resolutionText }}</span>
+          <span class="meta-item meta-id">ID {{ item.id }}</span>
+        </div>
+
         <h2 :title="item.title">{{ item.title || '（无标题作品）' }}</h2>
 
         <div class="author">
-          <t-avatar :image="mediaUrl(item.author.avatar, { inline: true })" :size="'38px'" shape="round" />
-          <span class="nickname">{{ item.author.nickname }}</span>
-          <span class="type">{{ isLivePhoto ? '实况照片' : isImage ? `图文 · ${item.images.length} 张` : '视频 · 无水印' }}</span>
+          <t-avatar :image="mediaUrl(item.author.avatar, { inline: true })" :size="'36px'" shape="round" />
+          <div class="author-text">
+            <span class="nickname">{{ item.author.nickname }}</span>
+            <span v-if="item.author.uniqueId" class="handle">@{{ item.author.uniqueId }}</span>
+          </div>
+          <span v-if="dateText" class="date">{{ dateText }}</span>
+        </div>
+
+        <div v-if="hasStats" class="stats">
+          <span class="stat">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7.5-4.6-9.3-9A5 5 0 0 1 12 6.4 5 5 0 0 1 21.3 11c-1.8 4.4-9.3 9-9.3 9z" /></svg>
+            {{ formatCount(stats.digg) }}
+          </span>
+          <span class="stat">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H4l2.2-2.6A8 8 0 1 1 21 12z" /></svg>
+            {{ formatCount(stats.comment) }}
+          </span>
+          <span class="stat">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7h16v-7" /><path d="m16 7-4-4-4 4" /><path d="M12 3v11" /></svg>
+            {{ formatCount(stats.share) }}
+          </span>
+        </div>
+
+        <div v-if="item.music" class="music" :title="item.music">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12" /><circle cx="6.5" cy="18" r="2.5" /><circle cx="16.5" cy="16" r="2.5" /></svg>
+          <span>{{ item.music }}</span>
         </div>
 
         <div class="actions">
           <t-button
-            v-if="isLivePhoto && canShare"
+            v-if="!isImage"
             class="cta"
             size="large"
-            shape="round"
-            theme="primary"
-            :loading="shareBusy"
-            @click="saveLivePhotosToPhotos"
-          >
-            {{ shareBusy ? shareProgress : '保存实况照片到相册' }}
-          </t-button>
-          <t-button
-            v-else-if="isLivePhoto"
-            class="cta"
-            size="large"
-            shape="round"
-            theme="primary"
-            :loading="zipBusy"
-            @click="downloadIosLivePhotos"
-          >
-            {{ zipBusy ? zipProgress : '下载实况照片（iPhone 可用）' }}
-          </t-button>
-          <t-button
-            v-else-if="!isImage"
-            class="cta"
-            size="large"
-            shape="round"
             theme="primary"
             @click="downloadVideo"
           >
+            <template #icon>
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11" /><path d="m7 11 5 5 5-5" /><path d="M5 20h14" /></svg>
+            </template>
             下载无水印视频
           </t-button>
           <t-button
             v-else
             class="cta"
             size="large"
-            shape="round"
             theme="primary"
             @click="downloadAllImages"
           >
-            下载全部图片
-          </t-button>
-          <t-button v-if="isLivePhoto && canShare" class="sub" variant="text" @click="downloadIosLivePhotos">
-            下载 ZIP（备用）
-          </t-button>
-          <t-button v-if="isLivePhoto" class="sub" variant="text" @click="saveLivePhotoVideo">
-            {{ canShare ? '另存为动图到相册' : '另存为动图 MP4' }}
+            <template #icon>
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11" /><path d="m7 11 5 5 5-5" /><path d="M5 20h14" /></svg>
+            </template>
+            下载全部图片（{{ item.images.length }} 张）
           </t-button>
         </div>
-
-        <p v-if="isLivePhoto && !zipBusy && !shareBusy" class="ios-tip">
-          <template v-if="canShare">
-            点击「保存实况照片到相册」→ 在弹出的系统分享面板中点击「存储图像」，实况照片即
-            <strong>直接存入 iPhone 相册</strong>，无需 ZIP 解压。若面板中没有「存储图像」（iOS 16.2+ 部分版本的已知问题），改选「存储到『文件』」，再在文件 App 中同时选中这一对同名文件 → 分享 →「存储图像」，同样得到实况照片。
-          </template>
-          <template v-else-if="isIos && !isSecure">
-            iPhone 上的一键直存需要 HTTPS 环境（Web Share 仅在安全上下文可用），当前页面不是 HTTPS，已回退为 ZIP 下载。请按 README 4.6 配置 HTTPS 或 cloudflared 隧道后重试。
-          </template>
-          <template v-else>
-            ZIP 内含同名 JPG + MOV 配对：传到 iPhone 在「文件」中解压，同时选中一对文件 → 分享 →「存储图像」，相册中即为可播放的实况照片。一键直存仅支持 iPhone / iPad 上的 Safari（本电脑端无法直接存入手机相册）。
-          </template>
-        </p>
       </div>
     </article>
   </section>
@@ -283,21 +200,35 @@ async function downloadIosLivePhotos() {
 
 <style scoped lang="less">
 .result {
-  margin-top: 18px;
+  margin-top: 16px;
 }
 
+/* ---------- 空态 ---------- */
 .empty {
-  padding: 40px 28px;
+  padding: 44px 28px;
   text-align: center;
   border-radius: var(--dy-radius-xl);
   border: 1px solid var(--dy-border);
   background: var(--dy-surface);
-  p {
-    margin: 0 0 8px;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  .empty-icon {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    margin: 0 auto 14px;
+    border-radius: 14px;
+    color: var(--dy-text-muted);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--dy-border);
+  }
+  .empty-msg {
+    margin: 0 0 10px;
     color: var(--dy-text-secondary);
     font-size: 14.5px;
   }
-  code {
+  .empty-url {
     font-family: var(--dy-font-mono);
     font-size: 12px;
     color: var(--dy-text-muted);
@@ -305,6 +236,7 @@ async function downloadIosLivePhotos() {
   }
 }
 
+/* ---------- 结果卡片 ---------- */
 .card {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
@@ -312,7 +244,7 @@ async function downloadIosLivePhotos() {
   padding: 24px;
   border-radius: var(--dy-radius-xl);
   border: 1px solid var(--dy-border);
-  background: var(--dy-surface);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.028));
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   box-shadow: var(--dy-shadow-1);
@@ -321,19 +253,9 @@ async function downloadIosLivePhotos() {
 .media {
   min-width: 0;
 }
+
+/* 视频预览 */
 .video {
-  border-radius: 16px;
-  overflow: hidden;
-  border: 1px solid var(--dy-border);
-  background: #000;
-  video {
-    display: block;
-    width: 100%;
-    max-height: 460px;
-    background: #000;
-  }
-}
-.live {
   position: relative;
   border-radius: 16px;
   overflow: hidden;
@@ -346,24 +268,30 @@ async function downloadIosLivePhotos() {
     background: #000;
   }
 }
-.live-badge {
+.video-chips {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+}
+.chip {
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-family: var(--dy-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
   color: #fff;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-  svg {
-    width: 18px;
-    height: 18px;
+  &.chip-no-wm {
+    color: #0b0b0d;
+    background: rgba(255, 255, 255, 0.92);
+    border-color: transparent;
+    font-weight: 700;
   }
 }
 .video-fallback {
@@ -379,13 +307,15 @@ async function downloadIosLivePhotos() {
     background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
   }
 }
+
+/* 图文网格 */
 .image-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   &.single {
     grid-template-columns: 1fr;
-    max-width: 360px;
+    max-width: 340px;
   }
 }
 .image-cell {
@@ -393,6 +323,34 @@ async function downloadIosLivePhotos() {
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--dy-border);
+  background: rgba(0, 0, 0, 0.3);
+  .cell-download {
+    position: absolute;
+    inset: auto 8px 8px auto;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 9px;
+    cursor: pointer;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.2s ease, transform 0.2s ease, background 0.2s ease;
+    &:hover {
+      background: rgba(255, 255, 255, 0.9);
+      color: #0b0b0d;
+    }
+  }
+  &:hover .cell-download {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .index {
   position: absolute;
@@ -400,34 +358,70 @@ async function downloadIosLivePhotos() {
   bottom: 8px;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11.5px;
+  font-family: var(--dy-font-mono);
+  font-size: 11px;
   color: #fff;
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(6px);
 }
 
+/* ---------- 信息区 ---------- */
 .info {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 18px;
+  gap: 14px;
   min-width: 0;
-  h2 {
-    margin: 0;
-    font-size: clamp(18px, 2.2vw, 23px);
-    font-weight: 800;
-    line-height: 1.45;
-    letter-spacing: -0.01em;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
 }
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.type-badge {
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #0b0b0d;
+  background: linear-gradient(135deg, #ffffff, #c9c9d2);
+}
+.meta-item {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-family: var(--dy-font-mono);
+  font-size: 11.5px;
+  color: var(--dy-text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--dy-border);
+}
+.meta-id {
+  color: var(--dy-text-muted);
+}
+
+h2 {
+  margin: 0;
+  font-size: clamp(18px, 2.2vw, 23px);
+  font-weight: 800;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .author {
   display: flex;
   align-items: center;
   gap: 10px;
+  .author-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
   .nickname {
     font-size: 14.5px;
     font-weight: 600;
@@ -435,23 +429,58 @@ async function downloadIosLivePhotos() {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .type {
+  .handle {
+    font-family: var(--dy-font-mono);
+    font-size: 11.5px;
+    color: var(--dy-text-muted);
+  }
+  .date {
     margin-left: auto;
     flex-shrink: 0;
     font-size: 12px;
     color: var(--dy-text-muted);
-    padding: 4px 10px;
-    border-radius: 999px;
-    border: 1px solid var(--dy-border);
   }
 }
-.actions {
+
+.stats {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  gap: 14px;
+  .stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--dy-font-mono);
+    font-size: 12.5px;
+    color: var(--dy-text-secondary);
+    svg {
+      color: var(--dy-text-muted);
+    }
+  }
+}
+
+.music {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--dy-text-muted);
+  svg {
+    flex-shrink: 0;
+  }
+  span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.actions {
+  margin-top: auto;
+  padding-top: 4px;
   .cta {
-    flex: 1;
-    min-width: 190px;
+    width: 100%;
+    min-width: 200px;
     background: linear-gradient(135deg, #ffffff 0%, #dcdce2 55%, #b0b0ba 120%) !important;
     border: none !important;
     color: #0b0b0d !important;
@@ -463,20 +492,6 @@ async function downloadIosLivePhotos() {
       box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
     }
   }
-  .sub {
-    flex-shrink: 0;
-    color: var(--dy-text-secondary);
-  }
-}
-.ios-tip {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.7;
-  color: var(--dy-text-muted);
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px dashed var(--dy-border);
-  border-radius: 12px;
-  padding: 10px 14px;
 }
 
 @media (max-width: 860px) {
