@@ -113,7 +113,49 @@ npm start       # 启动后端，同时托管 dist 静态资源与 API
 
 访问 **http://localhost:8787** 即可使用（单端口部署）。
 
-### 4.5 脚本一览
+### 4.5 Docker 部署（飞牛 NAS 等）
+
+项目提供 `Dockerfile` + `docker-compose.yml`，并内置 GitHub Actions 工作流：每次推送 `main` 自动构建 **amd64 / arm64 双架构**镜像并发布到 **GHCR**（`ghcr.io/zane-phil/dyverse`），NAS 无需安装 Node 即可运行。
+
+**方式一：直接拉取镜像（推荐，免构建）**
+
+1. 首次使用前，将 GitHub 上的 GHCR 包设为公开：GitHub → 头像 → *Your packages* → `dyverse` → *Package settings* → *Change visibility* → Public（否则 NAS 拉取需要登录 token）；
+2. 飞牛 NAS：Docker 应用 → 编排 / 项目 → 新建项目，粘贴下面的 `docker-compose.yml` 并启动；或 SSH 到 NAS 执行：
+
+```bash
+mkdir -p /vol1/docker/dyverse && cd /vol1/docker/dyverse
+# 保存仓库中的 docker-compose.yml 到该目录
+docker compose pull   # 拉取 ghcr.io/zane-phil/dyverse:latest
+docker compose up -d  # 启动
+```
+
+```yaml
+services:
+  dyverse:
+    build: .
+    image: ghcr.io/zane-phil/dyverse:latest
+    container_name: dyverse
+    restart: unless-stopped
+    ports:
+      - '8787:8787'
+    environment:
+      - TZ=Asia/Shanghai
+```
+
+**方式二：NAS 本地构建**
+
+```bash
+git clone https://github.com/zane-phil/DyVerse.git && cd DyVerse
+docker compose up -d --build
+```
+
+**访问与说明**
+
+- 浏览器打开 `http://<NAS_IP>:8787` 即可使用；如需域名 / HTTPS 外网访问，用 NAS 自带的反向代理即可；
+- 国内网络拉取 `ghcr.io` 可能缓慢或失败：可配置镜像加速 / 代理，或改用**方式二**本地构建（构建依赖 npm，同样建议配置 npm 镜像如 `https://registry.npmmirror.com`）；
+- 本项目无数据库、无持久化数据（端口文件仅运行时临时写入），无需挂载卷；更新镜像 `docker compose pull && docker compose up -d` 即可。
+
+### 4.6 脚本一览
 
 | 命令 | 说明 |
 | --- | --- |
@@ -146,13 +188,16 @@ download_douyin/
 │  │  ├─ variables.less      # 设计令牌（颜色 / 圆角 / 阴影 / 字体）
 │  │  └─ global.less         # 全局样式与工具类
 │  ├─ types/
-│  │  └─ index.ts            # DouyinMedia / ParseResult 类型
+│  │  └─ index.ts            # MediaItem / ParseResult 类型
 │  └─ utils/
-│     └─ format.ts           # 格式化工具（相对时间 / 文件名）
+│     └─ format.ts           # 格式化工具（相对时间 / 时长 / 文件名）
 ├─ public/
 │  └─ favicon.svg            # 站点图标
 ├─ index.html                # HTML 入口（含 SEO meta）
 ├─ vite.config.ts            # 构建与开发代理配置
+├─ Dockerfile                # 多阶段构建镜像（node:22-alpine）
+├─ docker-compose.yml        # 一键编排（GHCR 镜像 / 本地构建）
+├─ .github/workflows/        # docker-publish：推送 main 自动构建发布 GHCR
 ├─ package.json
 └─ README.md
 ```

@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-ssr
+.git
+.gitignore
+*.log
+.dyverse-port.json
+README.md
+scripts
+.vscode
+Dockerfile
+docker-compose.yml
+.github

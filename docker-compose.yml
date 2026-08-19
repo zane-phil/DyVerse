@@ -1,0 +1,11 @@
+services:
+  dyverse:
+    # 有 GHCR 镜像时直接拉取；本地构建可用 `docker compose build`
+    build: .
+    image: ghcr.io/zane-phil/dyverse:latest
+    container_name: dyverse
+    restart: unless-stopped
+    ports:
+      - '8787:8787'
+    environment:
+      - TZ=Asia/Shanghai
