@@ -102,7 +102,8 @@ async function fetchPage(url, { ua = UA_PC, referer = 'https://www.douyin.com/' 
 
 /* ---------------- url helpers ---------------- */
 const DOUYIN_RE = /https?:\/\/(?:v\.douyin\.com|www\.douyin\.com|www\.iesdouyin\.com|iesdouyin\.com)[^\s"'<>，。；;）)]*/gi
-const XHS_RE = /https?:\/\/(?:www\.)?(?:xhslink\.com|xiaohongshu\.com)[^\s"'<>，。；;）)]*/gi
+// 小红书短链域名：xhslink.com（旧）/ xhslink.cn（新）/ xiaohongshu.com 页面
+const XHS_RE = /https?:\/\/(?:www\.)?(?:xhslink\.(?:com|cn)|xiaohongshu\.com)[^\s"'<>，。；;）)]*/gi
 
 function extractDouyinUrl(text) {
   const m = String(text || '').match(DOUYIN_RE)
@@ -610,7 +611,7 @@ async function tryXhsPage(pageUrl) {
 async function parseXhs(sourceUrl) {
   let resolvedUrl = sourceUrl
   try {
-    if (/xhslink\.com/i.test(sourceUrl)) {
+    if (/xhslink\.(?:com|cn)/i.test(sourceUrl)) {
       resolvedUrl = await resolveShortUrl(sourceUrl)
     }
   } catch {

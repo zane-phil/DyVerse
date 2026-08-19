@@ -15,7 +15,7 @@ const error = ref('')
 const isFocused = ref(false)
 
 function isSupportedText(text: string) {
-  return /douyin\.com|iesdouyin\.com|v\.douyin\.com|douyin|xiaohongshu\.com|xhslink\.com/i.test(text)
+  return /douyin\.com|iesdouyin\.com|v\.douyin\.com|douyin|xiaohongshu\.com|xhslink\.(?:com|cn)/i.test(text)
 }
 
 async function handlePaste() {
