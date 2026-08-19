@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
-import { parseDouyin } from '../api/douyin'
+import { parseMedia } from '../api/media'
 import type { ParseResult } from '../types'
 
 const emit = defineEmits<{
@@ -14,8 +14,8 @@ const loading = ref(false)
 const error = ref('')
 const isFocused = ref(false)
 
-function isDouyinText(text: string) {
-  return /douyin\.com|iesdouyin\.com|v\.douyin\.com|douyin/i.test(text)
+function isSupportedText(text: string) {
+  return /douyin\.com|iesdouyin\.com|v\.douyin\.com|douyin|xiaohongshu\.com|xhslink\.com/i.test(text)
 }
 
 async function handlePaste() {
@@ -39,15 +39,15 @@ async function handleParse() {
     MessagePlugin.warning('请先粘贴抖音分享链接')
     return
   }
-  if (!isDouyinText(raw)) {
-    error.value = '未识别到抖音链接，请检查后重试'
+  if (!isSupportedText(raw)) {
+    error.value = '未识别到抖音 / 小红书链接，请检查后重试'
     return
   }
   loading.value = true
   error.value = ''
   emit('parsing')
   try {
-    const result = await parseDouyin(raw)
+    const result = await parseMedia(raw)
     emit('parsed', result)
     if (!result.item) {
       MessagePlugin.warning(result.message || '解析成功，但未提取到媒体信息')
@@ -67,7 +67,7 @@ async function handleParse() {
       <!-- 输入区标题行 -->
       <div class="row-head">
         <span class="label">分享链接 / 口令</span>
-        <span class="support">口令 · 短链接 · 视频页 · 图文笔记</span>
+        <span class="support">抖音 · 小红书 · 口令 · 短链 · 视频 · 图文</span>
       </div>
 
       <!-- 输入区 -->
@@ -75,7 +75,7 @@ async function handleParse() {
         <t-textarea
           v-model="input"
           class="input"
-          placeholder="将抖音分享口令或链接粘贴到这里，例如：8.88 复制打开抖音… https://v.douyin.com/xxxx/"
+          placeholder="将抖音 / 小红书分享口令或链接粘贴到这里，例如：http://xhslink.com/xxxx 或 https://v.douyin.com/xxxx/"
           :autosize="{ minRows: 2, maxRows: 4 }"
           :disabled="loading"
           @focus="isFocused = true"

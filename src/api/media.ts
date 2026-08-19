@@ -1,8 +1,9 @@
-﻿import type { ParseResult } from '../types'
+import type { ParseResult } from '../types'
 
 const BASE = '/api'
 
-export async function parseDouyin(url: string): Promise<ParseResult> {
+/** 解析抖音 / 小红书分享链接 */
+export async function parseMedia(url: string): Promise<ParseResult> {
   const res = await fetch(`${BASE}/parse`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

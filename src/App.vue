@@ -43,9 +43,9 @@ const steps = [
     <main class="main">
       <!-- 工具标题 -->
       <div class="hero">
-        <div class="eyebrow">DOUYIN MEDIA PARSER</div>
-        <h1>抖音链接解析下载</h1>
-        <p class="sub">粘贴分享口令或链接，无水印视频与高清图文一键保存。</p>
+        <div class="eyebrow">SOCIAL MEDIA PARSER</div>
+        <h1>抖音 / 小红书解析下载</h1>
+        <p class="sub">粘贴分享口令或链接，无水印视频与高清图片一键保存。</p>
       </div>
 
       <!-- 流程步骤 -->

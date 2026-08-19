@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
-import { mediaUrl, triggerDownload, downloadMany } from '../api/douyin'
+import { mediaUrl, triggerDownload, downloadMany } from '../api/media'
 import { safeFilename, timeAgo, formatDuration, formatCount } from '../utils/format'
 import type { ParseResult } from '../types'
 
@@ -22,6 +22,8 @@ const typeLabel = computed(() => {
   if (!it) return ''
   return isImage.value ? `图文 · ${it.images.length} 张` : '视频'
 })
+
+const platformLabel = computed(() => (item.value?.platform === 'xiaohongshu' ? '小红书' : '抖音'))
 
 const proxyCover = computed(() => {
   const it = item.value
@@ -130,7 +132,8 @@ function downloadImage(url: string, index: number) {
       <!-- 信息与操作 -->
       <div class="info">
         <div class="meta-row">
-          <span class="type-badge">{{ typeLabel }}</span>
+          <span class="type-badge" :class="`platform-${item.platform}`">{{ platformLabel }}</span>
+          <span class="meta-item">{{ typeLabel }}</span>
           <span v-if="durationText" class="meta-item">{{ durationText }}</span>
           <span v-if="resolutionText" class="meta-item">{{ resolutionText }}</span>
           <span class="meta-item meta-id">ID {{ item.id }}</span>
@@ -387,6 +390,9 @@ function downloadImage(url: string, index: number) {
   letter-spacing: 0.05em;
   color: #0b0b0d;
   background: linear-gradient(135deg, #ffffff, #c9c9d2);
+  &.platform-xiaohongshu {
+    background: linear-gradient(135deg, #ff5b4d, #ff2e4d);
+  }
 }
 .meta-item {
   padding: 3px 8px;

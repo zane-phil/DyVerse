@@ -102,9 +102,15 @@ async function fetchPage(url, { ua = UA_PC, referer = 'https://www.douyin.com/' 
 
 /* ---------------- url helpers ---------------- */
 const DOUYIN_RE = /https?:\/\/(?:v\.douyin\.com|www\.douyin\.com|www\.iesdouyin\.com|iesdouyin\.com)[^\s"'<>，。；;）)]*/gi
+const XHS_RE = /https?:\/\/(?:www\.)?(?:xhslink\.com|xiaohongshu\.com)[^\s"'<>，。；;）)]*/gi
 
 function extractDouyinUrl(text) {
   const m = String(text || '').match(DOUYIN_RE)
+  return m ? m[0].trim() : ''
+}
+
+function extractXhsUrl(text) {
+  const m = String(text || '').match(XHS_RE)
   return m ? m[0].trim() : ''
 }
 
@@ -296,6 +302,7 @@ function mapAweme(aweme) {
     ''
 
   return {
+    platform: 'douyin',
     type: isImage ? 'image' : 'video',
     id: String(aweme.aweme_id || ''),
     title: decodeHtml(aweme.desc || aweme.title || (aweme.seo_info && aweme.seo_info.desc) || ''),
@@ -337,6 +344,7 @@ function metaFallback(html, id) {
     )?.[0] || ''
   const play = normalizePlay(playRaw)
   return {
+    platform: 'douyin',
     type: 'video',
     id: String(id),
     title: decodeHtml(title),
@@ -412,12 +420,208 @@ async function tryWebDetailApi(id) {
   }
 }
 
+/* ---------------- xiaohongshu ---------------- */
+let xhsWarmed = false
+
+function extractXhsNoteId(url) {
+  const patterns = [
+    /(?:explore|discovery\/item)\/([0-9a-zA-Z]{12,})/,
+    /note_id=([0-9a-zA-Z]{12,})/,
+    /itemId=([0-9a-zA-Z]{12,})/,
+    /item_id=([0-9a-zA-Z]{12,})/,
+  ]
+  for (const re of patterns) {
+    const m = String(url).match(re)
+    if (m) return m[1]
+  }
+  return ''
+}
+
+function normalizeXhsUrl(u) {
+  if (!u) return ''
+  return String(u).replace(/\\u002F/gi, '/').replace(/^http:\/\//i, 'https://').trim()
+}
+
+/** 选取图片最高清地址：优先 urlDefault（原图），其次 infoList 中面积最大的条目 */
+function pickXhsImage(img) {
+  if (!img) return ''
+  const candidates = []
+  if (img.urlDefault) candidates.push(img.urlDefault)
+  const list = Array.isArray(img.infoList) ? img.infoList : []
+  let best = null
+  for (const it of list) {
+    if (!it || !it.url) continue
+    const area = (it.width || 0) * (it.height || 0)
+    if (!best || area > (best.width || 0) * (best.height || 0)) best = it
+  }
+  if (best && best.url) candidates.push(best.url)
+  if (img.url) candidates.push(img.url)
+  for (const c of candidates) {
+    const u = normalizeXhsUrl(c)
+    if (u) return u
+  }
+  return ''
+}
+
+function mapXhsNote(note) {
+  const user = note.user || {}
+  const interact = note.interactInfo || {}
+  const video = note.video || {}
+  const h264 =
+    (video.media && video.media.stream && Array.isArray(video.media.stream.h264) && video.media.stream.h264) ||
+    []
+  const bestStream = h264[h264.length - 1] || {}
+  const videoUrl = normalizeXhsUrl(
+    bestStream.masterUrl || (bestStream.backupUrls && bestStream.backupUrls[0]) || '',
+  )
+  const images = (Array.isArray(note.imageList) ? note.imageList : []).map(pickXhsImage).filter(Boolean)
+  const isImage = !videoUrl && images.length > 0
+  const cover =
+    normalizeXhsUrl((video.cover && video.cover.url) || '') || (images.length ? images[0] : '')
+  // xhs 的 time 为毫秒时间戳，统一转秒（与抖音一致）
+  const rawTime = Number(note.time) || 0
+  const createTime = rawTime > 1e12 ? Math.round(rawTime / 1000) : Math.round(rawTime)
+  const toNum = (v) => (Number(v) > 0 ? Number(v) : 0)
+
+  return {
+    platform: 'xiaohongshu',
+    type: isImage ? 'image' : 'video',
+    id: String(note.noteId || note.id || ''),
+    title: decodeHtml(note.title || note.desc || ''),
+    author: {
+      nickname: decodeHtml(user.nickname || '未知作者'),
+      avatar: normalizeXhsUrl(user.avatar || ''),
+      uniqueId: String(user.userId || ''),
+      signature: decodeHtml(user.desc || ''),
+    },
+    cover,
+    videoUrl,
+    videoUrlWatermark: '',
+    images,
+    duration: video.media && video.media.duration ? Math.round(Number(video.media.duration)) : 0,
+    createTime,
+    statistics: {
+      digg: toNum(interact.likedCount),
+      comment: toNum(interact.commentCount),
+      share: toNum(interact.shareCount),
+      collect: toNum(interact.collectedCount),
+    },
+    music: '',
+    width: Number(bestStream.width) || 0,
+    height: Number(bestStream.height) || 0,
+  }
+}
+
+function extractXhsInitialState(html) {
+  const m = String(html).match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\})\s*<\/script>/)
+  if (!m) return null
+  try {
+    // 小红书 SSR 状态里常见字面量 undefined（非法 JSON，形如 "key":undefined），替换为 null 再解析
+    const json = m[1].replace(/([,:{]\s*)undefined(?=\s*[,}])/g, '$1null')
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
+}
+
+/** 抓取小红书页面：先访问一次首页收集 a1/webId 等匿名 Cookie，再抓笔记页 SSR 数据。
+ *  注意：移动 UA 会被小红书返回无数据的安全页，必须使用 PC UA 才能拿到完整 SSR。 */
+async function fetchXhsPage(url) {
+  if (!xhsWarmed) {
+    try {
+      await fetchPage('https://www.xiaohongshu.com/explore', { ua: UA_PC })
+    } catch {
+      /* warm-up 失败不影响主请求 */
+    }
+    xhsWarmed = true
+  }
+  const res = await fetch(url, {
+    redirect: 'follow',
+    headers: {
+      'User-Agent': UA_PC,
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.5',
+      Referer: 'https://www.xiaohongshu.com/',
+    },
+  })
+  mergeCookies(res)
+  return res
+}
+
+async function tryXhsPage(pageUrl) {
+  try {
+    const res = await fetchXhsPage(pageUrl)
+    if (!res.ok) return null
+    const html = await res.text()
+    if (!html || html.length < 2000) return null
+    const state = extractXhsInitialState(html)
+    if (!state) return null
+    const noteMap = state.note && state.note.noteDetailMap
+    if (!noteMap || typeof noteMap !== 'object') return null
+    for (const key of Object.keys(noteMap)) {
+      const note = noteMap[key] && noteMap[key].note
+      // 仅当笔记含实际媒体（图片或视频）时才视为有效，排除风控/删除占位页
+      if (note && (Array.isArray(note.imageList) || note.video)) {
+        return mapXhsNote(note)
+      }
+    }
+  } catch {
+    /* try next */
+  }
+  return null
+}
+
+/** 解析小红书：还原短链 -> 提取笔记 ID -> 依次尝试分享页 / explore / discovery 页面 SSR */
+async function parseXhs(sourceUrl) {
+  let resolvedUrl = sourceUrl
+  try {
+    if (/xhslink\.com/i.test(sourceUrl)) {
+      resolvedUrl = await resolveShortUrl(sourceUrl)
+    }
+  } catch {
+    /* keep source */
+  }
+  const id = extractXhsNoteId(resolvedUrl) || extractXhsNoteId(sourceUrl)
+  if (!id) return { item: null, resolvedUrl, idFound: false }
+
+  const candidates = []
+  if (/xiaohongshu\.com\/(explore|discovery\/item)/i.test(resolvedUrl)) {
+    candidates.push(resolvedUrl) // 分享短链还原后通常带 xsec_token，成功率最高
+  }
+  candidates.push(`https://www.xiaohongshu.com/explore/${id}`)
+  candidates.push(`https://www.xiaohongshu.com/discovery/item/${id}`)
+
+  for (const c of candidates) {
+    const item = await tryXhsPage(c)
+    if (item && (item.videoUrl || item.images.length)) return { item, resolvedUrl, idFound: true }
+  }
+  return { item: null, resolvedUrl, idFound: true }
+}
+
 /* ---------------- routes ---------------- */
 app.post('/api/parse', async (req, res) => {
   try {
-    const source = extractDouyinUrl(req.body && req.body.url)
-    if (!source) {
-      return res.status(400).json({ message: '未识别到抖音链接，请粘贴完整的分享链接或口令' })
+    const text = String((req.body && req.body.url) || '')
+    const source = extractDouyinUrl(text)
+    const xhsSource = extractXhsUrl(text)
+    if (!source && !xhsSource) {
+      return res.status(400).json({ message: '未识别到抖音 / 小红书链接，请粘贴完整的分享链接或口令' })
+    }
+
+    // 小红书分支
+    if (xhsSource && !source) {
+      const { item, resolvedUrl, idFound } = await parseXhs(xhsSource)
+      if (!item) {
+        return res.json({
+          sourceUrl: xhsSource,
+          resolvedUrl,
+          item: null,
+          message: idFound
+            ? '小红书作品获取失败：作品可能已删除、仅自己可见，或触发了平台风控，请稍后重试'
+            : '分享链接已失效或过期，请在小红书 App 重新复制最新的分享链接',
+        })
+      }
+      return res.json({ sourceUrl: xhsSource, resolvedUrl, item })
     }
 
     let resolvedUrl = source
@@ -490,9 +694,11 @@ app.get('/api/download', async (req, res) => {
   }
 
   let upstream = null
+  const isXhs = /xhscdn\.com|xiaohongshu\.com/i.test(url)
+  const referer = isXhs ? 'https://www.xiaohongshu.com/' : 'https://www.douyin.com/'
   const attempts = [
-    { 'User-Agent': UA_PC, Referer: 'https://www.douyin.com/', Accept: '*/*' },
-    { 'User-Agent': UA_MOBILE, Referer: 'https://www.douyin.com/', Accept: '*/*' },
+    { 'User-Agent': UA_PC, Referer: referer, Accept: '*/*' },
+    { 'User-Agent': UA_MOBILE, Referer: referer, Accept: '*/*' },
   ]
   for (const headers of attempts) {
     if (cookieJar) headers.Cookie = cookieJar

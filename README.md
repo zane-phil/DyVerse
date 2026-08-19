@@ -1,7 +1,7 @@
 # DyVerse · 抖音视频 / 图文下载器
 
 > 一个拥有高级质感界面的抖音内容下载 Web 项目：**Vue 3 + TypeScript + TDesign UI + Less + Node.js 代理服务**。
-> 支持抖音分享口令 / 短链接 / 视频页 / 图文笔记的一键解析，无水印视频下载与图文批量保存。
+> 支持抖音 / 小红书分享口令、短链接、视频页与图文笔记的一键解析，无水印视频下载与图片批量保存。
 
 ![Vue](https://img.shields.io/badge/Vue-3.5-42b883) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6) ![TDesign](https://img.shields.io/badge/TDesign-1.x-0052d9) ![Less](https://img.shields.io/badge/Less-4.x-1d365d) ![Express](https://img.shields.io/badge/Express-5.x-000000) ![Node](https://img.shields.io/badge/Node-20%2B-339933) ![License](https://img.shields.io/badge/License-Private-8b5cf6)
 
@@ -43,7 +43,7 @@ DyVerse 是一个「打开即用」的本地抖音下载工具：
 | --- | --- | --- |
 | 🎬 视频下载 | 无水印原画 | `playwm` → `play` 地址转换，分辨率优先 1080P+（取决于源站提供） |
 | 🖼️ 图文笔记 | 单张下载 / 一键全部 | 图片以原始清晰度链接逐个保存，悬停可单张下载 |
-| 🔗 链接兼容 | 分享口令 / 短链 / 页面链接 | `v.douyin.com`、`douyin.com/video|note`、`iesdouyin.com/share/...` |
+| 🔗 链接兼容 | 抖音 / 小红书 | 抖音 `v.douyin.com`、`douyin.com/video|note`、`iesdouyin.com/share/...`；小红书 `xhslink.com` 短链、`xiaohongshu.com/explore|discovery/item/...` |
 | ▶️ 在线预览 | 视频 / 图片预览 | 通过本地代理内联播放与展示，不受防盗链影响 |
 | 📊 作品信息 | 关键信息 | 标题、作者、封面与预览，克制呈现 |
 | 🛡️ 隐私安全 | 全程本地 | 解析与媒体中转均在本机完成，不经过任何第三方服务器 |
@@ -137,7 +137,7 @@ download_douyin/
 │  ├─ App.vue                # 单页骨架：解析状态与布局
 │  ├─ tdesign.d.ts           # TDesign 全局组件类型声明
 │  ├─ api/
-│  │  └─ douyin.ts           # 前端 API 客户端（解析 / 下载 / 批量下载）
+│  │  └─ media.ts            # 前端 API 客户端（解析 / 下载 / 批量下载）
 │  ├─ components/
 │  │  ├─ ParserInput.vue     # 链接输入 / 一键粘贴 / 解析
 │  │  └─ ResultCard.vue      # 解析结果（预览 / 作者 / 下载）
@@ -259,7 +259,19 @@ emit('parsed', result)
 3. 流式转发（`for await...of`），支持 `inline`（预览）与 `attachment`（下载）两种响应头；
 4. 请求过程中自动合并源站 `Set-Cookie`，后续请求复用 Cookie 提升成功率。
 
-### 7.5 错误处理
+### 7.5 小红书解析
+
+`/api/parse` 自动识别小红书链接（`xhslink.com` 短链 / `xiaohongshu.com/explore` / `discovery/item` 页面）：
+
+1. **还原短链**：`xhslink.com` 跟随重定向（PC UA），还原后的链接通常带 `xsec_token`——小红书对不带 token 的直链会返回安全页，因此**分享短链成功率最高**；
+2. **抓取 SSR**：先访问一次 `xiaohongshu.com/explore` 收集匿名 Cookie（`a1` / `webId`），再用 **PC UA** 抓取笔记页（移动 UA 会被返回无数据的安全页），解析 `window.__INITIAL_STATE__` 中的 `note.noteDetailMap[id].note`；
+3. **容错解析**：SSR 状态中常见字面量 `undefined`（非法 JSON），解析前统一替换为 `null`；
+4. **字段映射**：`imageList` 逐张取最高清地址（优先 `urlDefault` 原图，其次 `infoList` 中面积最大条目）；视频取 `video.media.stream.h264` 最后一档 `masterUrl`（1080P 优先）；`interactInfo` 映射点赞/评论/收藏/分享数，毫秒时间戳统一转秒；
+5. **下载代理**：`xhscdn.com` 媒体自动携带 `Referer: https://www.xiaohongshu.com/` 中转。
+
+> 小红书笔记页对未登录访问有一定风控，作品被删除、仅自己可见或请求过于频繁时会解析失败；短链过期（还原后落在首页）会提示重新复制最新分享链接。
+
+### 7.6 错误处理
 
 - `express.json` 解析失败 → `400 { message }`
 - 未识别链接 / 无作品 ID → `400 { message }`
@@ -294,6 +306,7 @@ curl -X POST http://localhost:8787/api/parse \
   "sourceUrl": "https://v.douyin.com/xxxxx/",
   "resolvedUrl": "https://www.iesdouyin.com/share/video/7598109203374345512/?region=CN...",
   "item": {
+    "platform": "douyin",
     "type": "video",
     "id": "7598109203374345512",
     "title": "作品标题…",
@@ -317,7 +330,7 @@ curl -X POST http://localhost:8787/api/parse \
 }
 ```
 
-> 图文作品：`type` 为 `image`，`images` 为图片 URL 数组，`videoUrl` / `videoUrlWatermark` 为空字符串；实况图作品统一按静态图片输出。
+> `platform` 标识来源（`douyin` / `xiaohongshu`）；图文作品：`type` 为 `image`，`images` 为图片 URL 数组，`videoUrl` / `videoUrlWatermark` 为空字符串；实况图作品统一按静态图片输出。
 
 **异常响应**
 
@@ -392,8 +405,13 @@ Content-Length: 15504346
 - 后端：启动前设置环境变量 `PORT`，例如 `$env:PORT=9000; npm run server`（Vite 代理目标需同步修改）。
 
 ### 10.6 部署到服务器后无法解析
-- 部分云服务器 IP 会被抖音风控拦截（验证页），本工具设计为**本机使用**；
+- 部分云服务器 IP 会被抖音 / 小红书风控拦截（验证页），本工具设计为**本机使用**；
 - 若必须部署，建议使用家庭宽带 IP 并控制请求频率。
+
+### 10.7 小红书解析失败 / 提示链接已失效
+- 小红书分享短链（`xhslink.com`）会过期：过期后还原会落在首页，此时请在小红书 App 重新复制最新分享链接；
+- 直链（`xiaohongshu.com/explore/{id}`）不带 `xsec_token` 时会被安全页拦截，请使用带 token 的分享链接（App 分享出去的链接自带）；
+- 作品被删除、仅自己可见或请求过于频繁时同样会失败，可稍后重试。
 
 ---
 
